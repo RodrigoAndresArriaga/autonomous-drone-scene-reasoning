@@ -38,8 +38,8 @@ def main():
     if not image_path.exists():
         raise FileNotFoundError(
             f"Test image not found at {image_path}. "
-            "Add a simple test image (e.g. scripts/test_image.jpg) or pass a path: "
-            "python smoke_test.py path/to/image.png"
+            "Add a simple test image (e.g. scripts/test_image.png) or pass a path: "
+            "python smoke_test.py path/to/image.jpg"
         )
 
     image = Image.open(image_path).convert("RGB")
@@ -56,19 +56,31 @@ def main():
 
     processor = AutoProcessor.from_pretrained(model_id)
 
-    # --- Safety-focused prompt (aligned with README) ---
-    prompt = (
-        "You are a drone reasoning about shared physical safety.\n"
-        "Analyze the scene and answer:\n"
-        "1. What physical hazards are visible?\n"
-        "2. Is the path ahead safe for the drone?\n"
-        "3. Is the same path safe for a human to follow?\n"
-        "Answer concisely with physical reasoning."
-    )
+    # --- Chat-style prompt with explicit image placeholder (required by Qwen3-VL) ---
+    # Without {"type": "image"} the model gets 0 image tokens but 1536 image features → ValueError.
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image"},
+                {
+                    "type": "text",
+                    "text": (
+                        "You are a drone reasoning about shared physical safety.\n"
+                        "Analyze the scene and answer:\n"
+                        "1. What physical hazards are visible?\n"
+                        "2. Is the path ahead safe for the drone?\n"
+                        "3. Is the same path safe for a human to follow?\n"
+                        "Answer concisely using physical reasoning."
+                    ),
+                },
+            ],
+        }
+    ]
 
     inputs = processor(
-        text=prompt,
-        images=image,
+        messages,
+        images=[image],
         return_tensors="pt"
     ).to(model.device)
 
