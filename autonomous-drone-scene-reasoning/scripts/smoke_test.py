@@ -22,7 +22,6 @@ sys.path.insert(0, str(COSMOS_ROOT))
 
 from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
 import torch
-from PIL import Image
 
 
 def main():
@@ -42,27 +41,26 @@ def main():
             "python smoke_test.py path/to/image.jpg"
         )
 
-    image = Image.open(image_path).convert("RGB")
-
     # --- Load model & processor ---
     model_id = "nvidia/Cosmos-Reason2-2B"
 
     print("Loading model...")
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         model_id,
-        torch_dtype=torch.float16,
-        device_map="auto"
+        dtype=torch.float16,
+        device_map="auto",
+        attn_implementation="sdpa",
     )
 
     processor = AutoProcessor.from_pretrained(model_id)
 
-    # --- Chat-style prompt with explicit image placeholder (required by Qwen3-VL) ---
-    # Without {"type": "image"} the model gets 0 image tokens but 1536 image features → ValueError.
+    # --- Chat-style prompt with image inside message (required by Qwen3-VL) ---
+    # Image must be in the message content; use apply_chat_template only (no separate images=).
     messages = [
         {
             "role": "user",
             "content": [
-                {"type": "image"},
+                {"type": "image", "image": str(image_path)},
                 {
                     "type": "text",
                     "text": (
@@ -78,22 +76,30 @@ def main():
         }
     ]
 
-    inputs = processor(
+    inputs = processor.apply_chat_template(
         messages,
-        images=[image],
-        return_tensors="pt"
-    ).to(model.device)
+        tokenize=True,
+        add_generation_prompt=True,
+        return_dict=True,
+        return_tensors="pt",
+    )
+    inputs = inputs.to(model.device)
 
     print("Running inference...")
-    outputs = model.generate(
-        **inputs,
-        max_new_tokens=300
+    generated_ids = model.generate(**inputs, max_new_tokens=300)
+
+    generated_ids_trimmed = [
+        out_ids[len(in_ids) :]
+        for in_ids, out_ids in zip(inputs.input_ids, generated_ids, strict=False)
+    ]
+    output_text = processor.batch_decode(
+        generated_ids_trimmed,
+        skip_special_tokens=True,
+        clean_up_tokenization_spaces=False,
     )
 
-    result = processor.decode(outputs[0], skip_special_tokens=True)
-
     print("\n=== MODEL OUTPUT ===")
-    print(result)
+    print(output_text[0])
     print("====================")
 
 
