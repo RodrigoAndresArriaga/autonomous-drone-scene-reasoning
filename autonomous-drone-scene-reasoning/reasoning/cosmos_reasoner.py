@@ -80,7 +80,7 @@ def query_cosmos_structured(image_path: str) -> dict:
     model, processor = _load_model()
 
     img = Image.open(image_path).convert("RGB")
-    img = img.resize((640, 640))
+    img = img.resize((448, 448))
 
     allowed_hazards = ", ".join(HAZARD_TYPES.keys())
 
@@ -127,17 +127,21 @@ Example mappings:
         return_tensors="pt",
     )
     inputs = inputs.to(model.device)
+    t1 = time.time()
 
     with torch.no_grad():
         generated_ids = model.generate(
             **inputs,
-            max_new_tokens=96,
+            max_new_tokens=64,
             do_sample=False,
-            temperature=0.0,
+            use_cache=True,
         )
+    t2 = time.time()
 
     if os.environ.get("COSMOS_TIMING"):
-        print("Cosmos structured latency:", round(time.time() - t0, 2), "s")
+        print("Input prep:", round(t1 - t0, 2))
+        print("Generate:", round(t2 - t1, 2))
+        print("model.config.use_cache:", getattr(model.config, "use_cache", "?"))
 
     generated_ids_trimmed = [
         out_ids[len(in_ids) :]
