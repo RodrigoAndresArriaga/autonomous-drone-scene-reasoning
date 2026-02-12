@@ -50,13 +50,16 @@ def _load_model():
     global _model, _processor
     if _model is None:
         model_name = "nvidia/Cosmos-Reason2-2B"
-        _processor = AutoProcessor.from_pretrained(model_name)
+        offline = os.environ.get("TRANSFORMERS_OFFLINE") == "1" or os.environ.get("HF_HUB_OFFLINE") == "1"
+        load_kw = {"local_files_only": offline} if offline else {}
+        _processor = AutoProcessor.from_pretrained(model_name, **load_kw)
         try:
             _model = Qwen3VLForConditionalGeneration.from_pretrained(
                 model_name,
                 dtype=torch.float16,
                 device_map="auto",
                 attn_implementation="flash_attention_2",
+                **load_kw,
             )
         except Exception:
             _model = Qwen3VLForConditionalGeneration.from_pretrained(
@@ -64,6 +67,7 @@ def _load_model():
                 dtype=torch.float16,
                 device_map="auto",
                 attn_implementation="sdpa",
+                **load_kw,
             )
         if torch.cuda.is_available():
             dev = next(_model.parameters()).device
@@ -80,7 +84,8 @@ def query_cosmos_structured(image_path: str) -> dict:
     model, processor = _load_model()
 
     img = Image.open(image_path).convert("RGB")
-    img = img.resize((448, 448))
+    if os.environ.get("COSMOS_NO_RESIZE") != "1":
+        img = img.resize((448, 448))
 
     allowed_hazards = ", ".join(HAZARD_TYPES.keys())
 
