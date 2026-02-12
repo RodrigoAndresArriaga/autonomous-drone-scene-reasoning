@@ -180,15 +180,35 @@ def query_cosmos_explanation(context: dict) -> str:
 
     prompt = f"""Explain the deterministic safety decision below.
 
+Input:
 Hazards: {context.get("hazards", [])}
 Drone safety: {context.get("safety", {}).get("drone_path_safety")}
 Human safety: {context.get("safety", {}).get("human_follow_safety")}
 Recommendation: {context.get("recommendation", {}).get("recommendation")}
+Fallback available: {context.get("fallback_available", False)}
+
+Respond in this structured format:
+
+Hazards:
+[Summarize hazards and their physical relevance]
+
+Drone Safety:
+[Why the drone classification — mention drone constraints: can fly over gaps, no stable ground required]
+
+Human Safety:
+[Why the human classification — mention human constraints: requires stable ground, cannot fly over gaps, etc.]
+
+Reasoning:
+[Physical reasoning tying constraints to the recommendation]
 
 Rules:
+- Use physically grounded language. Refer to actual constraints (e.g., drone can fly over gaps; human requires stable ground).
+- Distinguish traversal affordances: what the drone can traverse vs what a human can traverse.
 - Do NOT change the recommendation.
 - Do NOT introduce new hazards.
-- Provide clear reasoning for why this decision is appropriate."""
+- Follow the structured format exactly.
+- If fallback_available is True, explain that a previously observed safe state may be preferable.
+- Do NOT specify spatial directions, distances, or path planning."""
 
     messages = [
         {
@@ -210,7 +230,7 @@ Rules:
     with torch.no_grad():
         generated_ids = model.generate(
             **inputs,
-            max_new_tokens=128,
+            max_new_tokens=200,
             do_sample=False,
         )
 

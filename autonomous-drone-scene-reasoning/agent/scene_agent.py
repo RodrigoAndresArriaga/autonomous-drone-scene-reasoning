@@ -31,6 +31,8 @@ from safety.recommendation import generate_navigation_recommendation
 _last_state_signature = None
 _last_explanation = None
 _last_raw_extraction = None
+_safe_state_memory = []
+MAX_MEMORY = 5  # small rolling buffer
 
 
 # Run full scene evaluation pipeline: Cosmos perception -> deterministic safety -> Cosmos explanation.
@@ -81,12 +83,33 @@ def evaluate_scene(
         HUMAN_CAPABILITIES,
     )
 
+    drone_class = safety["drone_path_safety"]["classification"]
+    human_class = safety["human_follow_safety"]["classification"]
+
+    global _safe_state_memory
+    if drone_class == "safe" and human_class == "safe":
+        # Only append when state changes (avoids redundant entries from consecutive safe frames)
+        if not _safe_state_memory or _safe_state_memory[-1]["hazards"] != validated_hazards:
+            _safe_state_memory.append({
+                "hazards": validated_hazards,
+                "drone_class": drone_class,
+                "human_class": human_class,
+            })
+            if len(_safe_state_memory) > MAX_MEMORY:
+                _safe_state_memory.pop(0)
+
+    fallback_available = False
+    if drone_class == "safe" and human_class == "unsafe" and len(_safe_state_memory) > 0:
+        fallback_available = True
+
     # 5) Deterministic policy recommendation
     rec = generate_navigation_recommendation(
         safety["drone_path_safety"]["classification"],
         safety["human_follow_safety"]["classification"],
         visibility_status,
     )
+    if fallback_available and rec["recommendation"] == "Proceed but do not guide":
+        rec["recommendation"] = "Reroute (previously observed safe state available)"
 
     # 6) Cosmos explanation: only when decision state changes
     state_signature = (
@@ -101,7 +124,7 @@ def evaluate_scene(
 
     if explain:
         if state_signature != _last_state_signature:
-            explanation = generate_explanation(validated_hazards, safety, rec)
+            explanation = generate_explanation(validated_hazards, safety, rec, fallback_available)
             _last_explanation = explanation
             _last_state_signature = state_signature
         else:

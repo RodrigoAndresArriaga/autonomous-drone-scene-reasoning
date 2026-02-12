@@ -30,7 +30,7 @@ HAZARD_TYPES = {
 
 
 class HazardInstance(TypedDict, total=False):
-    """Hazard instance aligned with output contract hazards array."""
+    #Hazard instance aligned with output contract hazards array.
 
     type: str
     location: str | None
@@ -39,5 +39,5 @@ class HazardInstance(TypedDict, total=False):
 
 
 def get_hazard_info(type_key: str) -> dict | None:
-    """Lookup hazard type info by canonical key."""
+    #Lookup hazard type info by canonical key.
     return HAZARD_TYPES.get(type_key)

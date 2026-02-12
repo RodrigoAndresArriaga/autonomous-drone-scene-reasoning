@@ -44,11 +44,9 @@ For each input video segment or frame window, the system produces:
 
 3. **Optional exit context (abstract, non-planning)** — Directional context when a safer zone or exit is implied. Not required for path safety classification. Used only to interpret guidance decisions, not to generate them. Does not perform exit discovery, mapping, or route selection. Path safety classification is always computed independently of exit context.
 
-4. **Risk map (abstract)** — Directional risk scores (forward, left, right, up) that incorporate human vs drone constraints.
+4. **Navigation & guidance recommendation** — Proceed and guide human / Proceed but do not guide human / Reroute before guiding / Hold position. Guidance decisions are made step-by-step. Shared-path safety classification always precedes any consideration of exit or goal direction.
 
-5. **Navigation & guidance recommendation** — Proceed and guide human / Proceed but do not guide human / Reroute before guiding / Hold position. Guidance decisions are made step-by-step. Shared-path safety classification always precedes any consideration of exit or goal direction.
-
-6. **Textual reasoning explanation** — Clear, physically grounded explanations (e.g., “While the drone can safely pass over the debris field, the uneven terrain presents a tripping hazard for a human. The recommended action is to reroute before guiding a person through this area.”).
+5. **Textual reasoning explanation** — Clear, physically grounded explanations (e.g., “While the drone can safely pass over the debris field, the uneven terrain presents a tripping hazard for a human. The recommended action is to reroute before guiding a person through this area.”).
 
 ---
 
@@ -75,7 +73,7 @@ At version 0.1, the **core reasoning pipeline** is intentionally simple and judg
 2. **Cosmos Reason 2 (scene + hazard extraction)**  
    Query Cosmos Reason 2 to extract scene description, hazards, and relevant physical context from the video.
 3. **Structured hazard parsing**  
-   Convert free-form model output into a structured hazard representation (types, locations, severities, human relevance). Canonical hazard taxonomy: `reasoning/hazard_schema.py`.
+   Cosmos Reason 2 is prompted with a strict JSON schema. Hazard types must match a predefined canonical taxonomy. Unknown hazards are rejected. The deterministic safety layer operates only on validated hazard objects. See `reasoning/hazard_schema.py`.
 4. **Affordance layer (drone vs human)**  
    Interpret hazards in terms of what is physically traversable for the drone vs what is traversable for a human follower.
 5. **Shared safety classification**  
@@ -84,6 +82,10 @@ At version 0.1, the **core reasoning pipeline** is intentionally simple and judg
    Recommend a local navigation / guidance action conditioned on the shared safety classification.
 7. **Explanation**  
    Produce a clear, textual explanation of the decision that can be audited by a human judge.
+
+### 4.1 Design Philosophy: Deterministic Safety Core
+
+The system separates perception from safety logic. Cosmos Reason 2 performs structured hazard extraction only. All safety classification and navigation policy decisions are computed deterministically through explicit capability constraints and rule-based logic. This ensures interpretability, reproducibility, and judge-verifiable behavior. See `safety/affordance_model.py` (affordance layer) and `safety/recommendation.py` (policy table).
 
 ```mermaid
 flowchart TD
@@ -108,19 +110,23 @@ Every frame must output the following canonical structure. Judges love explicit 
 
 ```json
 {
-  "hazards": [...],
-  "drone_path_safety": "SAFE | CAUTION | UNSAFE",
-  "human_follow_safety": "SAFE | CAUTION | UNSAFE",
+  "hazards": [{"type": "...", "severity": "..."}],
+  "drone_path_safety": {"total_risk_score": 0, "classification": "safe | caution | unsafe"},
+  "human_follow_safety": {"total_risk_score": 0, "classification": "safe | caution | unsafe"},
   "recommendation": "...",
-  "explanation": "..."
+  "explanation": "...",
+  "perception_complexity_score": 0,
+  "latency_ms": 0.0
 }
 ```
 
-- **hazards** — Array of identified hazards (type, location, severity, human relevance).
-- **drone_path_safety** — One of `SAFE`, `CAUTION`, or `UNSAFE`.
-- **human_follow_safety** — One of `SAFE`, `CAUTION`, or `UNSAFE`.
+- **hazards** — Array of identified hazards (type, severity). Types must match canonical taxonomy.
+- **drone_path_safety** — Object with `total_risk_score` (int) and `classification` (safe / caution / unsafe).
+- **human_follow_safety** — Object with `total_risk_score` (int) and `classification` (safe / caution / unsafe).
 - **recommendation** — Navigation / guidance action (e.g., Proceed and guide human, Reroute before guiding).
-- **explanation** — Textual, physically grounded reasoning for the decision.
+- **explanation** — Textual, physically grounded reasoning for the decision (or null if explanation disabled).
+- **perception_complexity_score** — Number of validated hazards.
+- **latency_ms** — Pipeline latency in milliseconds.
 
 ---
 
@@ -136,7 +142,6 @@ Every frame must output the following canonical structure. Judges love explicit 
 - Hazard assessment (obstacles, terrain, environmental hazards, human as constraint)
 - Dual safety evaluation (drone path + human-follow path)
 - Optional exit context (directional, non-planning)
-- Risk map (directional scores for drone vs human)
 - Navigation & guidance recommendation
 - Textual reasoning explanation
 
@@ -154,7 +159,7 @@ This project adapts the Video Search & Summarization recipe pattern for continuo
 The project’s physical plausibility logic is inspired by the Physical Plausibility Prediction recipe, which demonstrates how to judge consistency with physical laws. The project adopts this principle in its reasoning chain by applying constraint logic rather than numeric physics scoring.
 
 **Intelligent Transportation post-training (not used)**  
-This project does not use the Intelligent Transportation post-training recipe. Post-training biases Reason 2 to a specific labeled domain (e.g., traffic), which conflicts with its requirement for open-ended physical hazard reasoning and interpretability. This project intentionally uses Cosmos Reason 2 in inference mode; post-training on a fixed hazard taxonomy would narrow the model’s effective hazard vocabulary and reduce generalization to unseen or compound physical risks.
+This project does not use the Intelligent Transportation post-training recipe. Post-training biases Reason 2 to a specific labeled domain (e.g., traffic), which conflicts with its requirement for open-ended physical hazard reasoning and interpretability. This project intentionally uses Cosmos Reason 2 in inference mode; post-training on a fixed hazard taxonomy would narrow the model’s effective hazard vocabulary and reduce generalization to unseen or compound physical risks. Post-training was intentionally avoided to preserve open-ended hazard reasoning and prevent overfitting to a narrow labeled hazard set.
 
 ---
 
@@ -177,3 +182,13 @@ This project does not use the Intelligent Transportation post-training recipe. P
 - Recommended setup: develop and run on a GPU machine (e.g., remote SSH). Optionally, a remote Reason 2 inference API (e.g., vLLM server) may be used once the core agent loop is stable. The reference implementation prioritizes clarity and reproducibility over deployment complexity.
 
 When you run a demo, you should see: detected hazards, drone path safety, human-follow safety, recommendation, and a physically grounded explanation.
+
+---
+
+## 8. System Behavior Under Latency
+
+Inference latency at 384–448 resolution averages 10–20 seconds per decision frame on an NVIDIA L4 GPU. Real-time performance is not required for this challenge, as the focus is reasoning quality rather than control.
+
+In a deployment scenario, the drone would enter a safe hold position while safety inference is computed. Navigation or human guidance would only resume once shared-path classification is available. This ensures safety dominance over speed.
+
+Larger GPUs (A100/H100 class) would proportionally reduce inference latency, but this was not necessary to demonstrate reasoning correctness.

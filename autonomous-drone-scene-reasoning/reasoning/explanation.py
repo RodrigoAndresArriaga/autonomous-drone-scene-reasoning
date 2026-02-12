@@ -9,11 +9,13 @@ def generate_explanation(
     hazards: list[dict],
     safety: dict,
     recommendation: dict,
+    fallback_available: bool = False,
 ) -> str:
-    """Build context and call Cosmos for strategic explanation."""
+    #Build context and call Cosmos for strategic explanation.
     context = {
         "hazards": hazards,
         "safety": safety,
         "recommendation": recommendation,
+        "fallback_available": fallback_available,
     }
     return query_cosmos_explanation(context)
