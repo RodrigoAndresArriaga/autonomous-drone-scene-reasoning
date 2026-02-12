@@ -74,8 +74,16 @@ def query_cosmos_structured(image_path: str) -> dict:
 Allowed hazard types: {allowed_hazards}
 
 Rules:
-- Only use hazard types from the allowed list.
-- Output JSON only. No explanation.
+- Each hazard's "type" field must be exactly one value from the allowed list (e.g. "hole", "debris").
+- You may include multiple hazards in the array.
+- Do NOT modify hazard type names. Do NOT add prefixes or invent new categories.
+- If a scene element resembles a hazard, map it to the closest allowed type.
+- Output valid JSON only. No commentary.
+
+Example mappings:
+- Collapsed staircase → hole
+- Construction debris pile → unstable_debris_stack
+- Blocked path → restricted_escape_route
 """
 
     messages = [

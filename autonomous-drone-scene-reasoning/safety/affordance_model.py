@@ -89,9 +89,9 @@ def evaluate_hazard_for_agent(hazard: dict, capabilities: dict) -> tuple[int, li
 
 # Map total risk score to safety classification.
 def _risk_to_classification(score: int) -> str:
-    if score <= 4:
+    if score <= 3:
         return "safe"
-    if score <= 9:
+    if score <= 7:
         return "caution"
     return "unsafe"
 
