@@ -124,5 +124,5 @@ def evaluate_scene(
 if __name__ == "__main__":
     project_root = Path(__file__).resolve().parent.parent
     demo_image = project_root / "scripts" / "test_image.png"
-    output = evaluate_scene(str(demo_image), explain=False)
+    output = evaluate_scene(str(demo_image), explain=True)
     print(output)
