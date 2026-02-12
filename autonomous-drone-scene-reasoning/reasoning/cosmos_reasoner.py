@@ -3,6 +3,7 @@
 # Layer 3: explanation of deterministic outcomes.
 
 import json
+import threading
 import torch
 from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
@@ -10,6 +11,7 @@ from .hazard_schema import HAZARD_TYPES
 
 _model = None
 _processor = None
+_load_lock = threading.Lock()
 
 # JSON schema for NIM structured output. Enum values must match HAZARD_TYPES.
 HAZARD_SCHEMA = {
@@ -44,8 +46,13 @@ HAZARD_SCHEMA = {
 
 
 def _load_model():
+    """Load model and processor once; return cached instances on subsequent calls."""
     global _model, _processor
-    if _model is None:
+    if _model is not None:
+        return _model, _processor
+    with _load_lock:
+        if _model is not None:
+            return _model, _processor
         model_name = "nvidia/Cosmos-Reason2-2B"
         _processor = AutoProcessor.from_pretrained(model_name)
         _model = Qwen3VLForConditionalGeneration.from_pretrained(
