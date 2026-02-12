@@ -25,6 +25,30 @@ HUMAN_CAPABILITIES = {
 GAP_HAZARDS = ("hole", "low_visibility_dropoff")
 GROUND_INSTABILITY_HAZARDS = ("unstable_ground", "partial_floor_collapse", "unstable_debris_stack")
 
+SEVERITY_WEIGHTS = {
+    "low": 1,
+    "medium": 2,
+    "high": 3,
+    "critical": 4,
+    "contextual": 2,
+}
+MINIMUM_SEVERITY_FLOOR_TYPES = (
+    "hole",
+    "low_visibility_dropoff",
+    "electrical_exposure",
+    "confined_air_pocket",
+    "partial_floor_collapse",
+)
+
+# Table-based severity to risk weight. Floor applied for catastrophic types.
+def _get_severity_weight(hazard: dict, htype: str) -> int:
+    severity = hazard.get("severity", "medium")
+    base = SEVERITY_WEIGHTS.get(severity, 2)
+    if htype in MINIMUM_SEVERITY_FLOOR_TYPES:
+        base = max(base, SEVERITY_WEIGHTS["medium"])
+    return base
+
+
 # Evaluate a single hazard against an agent's capabilities. Returns (risk_score, violated_constraints).
 def evaluate_hazard_for_agent(hazard: dict, capabilities: dict) -> tuple[int, list[str]]:
     htype = hazard.get("type", "")
@@ -33,32 +57,32 @@ def evaluate_hazard_for_agent(hazard: dict, capabilities: dict) -> tuple[int, li
 
     # GAP hazards: agent cannot fly over
     if htype in GAP_HAZARDS and not capabilities.get("can_fly_over_gaps", False):
-        risk += 3
+        risk += _get_severity_weight(hazard, htype)
         violated.append(f"{htype}: cannot fly over gaps")
 
     # Ground instability: agent requires stable ground
     if htype in GROUND_INSTABILITY_HAZARDS and capabilities.get("requires_stable_ground", False):
-        risk += 3
+        risk += _get_severity_weight(hazard, htype)
         violated.append(f"{htype}: requires stable ground")
 
     # Electrical exposure: agent is sensitive to electricity
     if htype == "electrical_exposure" and capabilities.get("sensitive_to_electricity", False):
-        risk += 4
+        risk += _get_severity_weight(hazard, htype)
         violated.append("electrical_exposure: sensitive to electricity")
 
     # Heat source proximity: agent is sensitive to heat
     if htype == "heat_source_proximity" and capabilities.get("sensitive_to_heat", False):
-        risk += 3
+        risk += _get_severity_weight(hazard, htype)
         violated.append("heat_source_proximity: sensitive to heat")
 
     # Entanglement risk: agent is sensitive to entanglement
     if htype == "entanglement_risk" and capabilities.get("sensitive_to_entanglement", False):
-        risk += 2
+        risk += _get_severity_weight(hazard, htype)
         violated.append("entanglement_risk: sensitive to entanglement")
 
     # Confined air pocket: agent requires oxygen
     if htype == "confined_air_pocket" and capabilities.get("requires_oxygen", False):
-        risk += 4
+        risk += _get_severity_weight(hazard, htype)
         violated.append("confined_air_pocket: requires oxygen")
 
     return risk, violated
