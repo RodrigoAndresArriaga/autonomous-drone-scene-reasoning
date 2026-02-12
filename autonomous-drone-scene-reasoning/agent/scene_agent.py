@@ -28,12 +28,28 @@ from safety.affordance_model import (
 )
 from safety.recommendation import generate_navigation_recommendation
 
-# Run full scene evaluation pipeline: Cosmos perception -> deterministic safety -> Cosmos explanation.
-def evaluate_scene(image_path: str, explain: bool = False) -> dict:
-    start = time.time()
+_last_state_signature = None
+_last_explanation = None
+_last_raw_extraction = None
 
-    # 1) Cosmos structured hazard extraction: extract hazards from the image.
-    raw = query_cosmos_structured(image_path)
+
+# Run full scene evaluation pipeline: Cosmos perception -> deterministic safety -> Cosmos explanation.
+# For video: set run_hazard_extraction=False on non-key frames (e.g. frame_index % 10 != 0) to skip
+# Cosmos vision encoding; deterministic layer reuses cached hazards. Use evaluate_scene(frame, run_hazard_extraction=(i % 10 == 0)).
+def evaluate_scene(
+    image_path: str,
+    explain: bool = False,
+    run_hazard_extraction: bool = True,
+) -> dict:
+    start = time.time()
+    global _last_raw_extraction
+
+    # 1) Cosmos structured hazard extraction (or reuse cached)
+    if run_hazard_extraction or _last_raw_extraction is None:
+        raw = query_cosmos_structured(image_path)
+        _last_raw_extraction = raw
+    else:
+        raw = _last_raw_extraction
 
     # 2) Filter hazards and fail loudly on unknown types: filter out hazards that are not in the hazard schema.
     raw_hazards = raw.get("hazards", [])
@@ -72,10 +88,24 @@ def evaluate_scene(image_path: str, explain: bool = False) -> dict:
         visibility_status,
     )
 
-    # 6) Optional Cosmos explanation: generate an explanation for the decision using Cosmos.
+    # 6) Cosmos explanation: only when decision state changes
+    state_signature = (
+        tuple(sorted((h["type"], h.get("severity", "medium")) for h in validated_hazards)),
+        safety["drone_path_safety"]["classification"],
+        safety["human_follow_safety"]["classification"],
+        rec["recommendation"],
+    )
+
+    global _last_state_signature, _last_explanation
     explanation = None
+
     if explain:
-        explanation = generate_explanation(validated_hazards, safety, rec)
+        if state_signature != _last_state_signature:
+            explanation = generate_explanation(validated_hazards, safety, rec)
+            _last_explanation = explanation
+            _last_state_signature = state_signature
+        else:
+            explanation = _last_explanation
 
     # 7) Latency: calculate the latency of the pipeline.
     latency_ms = round((time.time() - start) * 1000, 2)
@@ -94,5 +124,5 @@ def evaluate_scene(image_path: str, explain: bool = False) -> dict:
 if __name__ == "__main__":
     project_root = Path(__file__).resolve().parent.parent
     demo_image = project_root / "scripts" / "test_image.png"
-    output = evaluate_scene(str(demo_image), explain=True)
+    output = evaluate_scene(str(demo_image), explain=False)
     print(output)

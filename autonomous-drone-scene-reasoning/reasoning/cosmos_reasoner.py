@@ -3,7 +3,10 @@
 # Layer 3: explanation of deterministic outcomes.
 
 import json
+import os
+import time
 import torch
+from PIL import Image
 from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
 from .hazard_schema import HAZARD_TYPES
@@ -48,17 +51,36 @@ def _load_model():
     if _model is None:
         model_name = "nvidia/Cosmos-Reason2-2B"
         _processor = AutoProcessor.from_pretrained(model_name)
-        _model = Qwen3VLForConditionalGeneration.from_pretrained(
-            model_name,
-            torch_dtype=torch.float16,
-            device_map="auto",
-            attn_implementation="sdpa",
-        )
+        try:
+            _model = Qwen3VLForConditionalGeneration.from_pretrained(
+                model_name,
+                torch_dtype=torch.float16,
+                device_map="auto",
+                attn_implementation="flash_attention_2",
+            )
+        except Exception:
+            _model = Qwen3VLForConditionalGeneration.from_pretrained(
+                model_name,
+                torch_dtype=torch.float16,
+                device_map="auto",
+                attn_implementation="sdpa",
+            )
+        if torch.cuda.is_available():
+            dev = next(_model.parameters()).device
+            if "cpu" in str(dev):
+                import warnings
+                warnings.warn(f"Model loaded on {dev}; expected cuda. Check device_map.")
+        if os.environ.get("COSMOS_TIMING"):
+            attn = getattr(_model.config, "_attn_implementation", None) or getattr(_model.config, "attn_implementation", "?")
+            print("Attention implementation:", attn)
     return _model, _processor
 
 # Layer 1: Structured hazard extraction from image. Returns schema-constrained hazards + visibility_status. Cosmos does NOT output safety or recommendations. Cosmos only extracts hazards from the image.
 def query_cosmos_structured(image_path: str) -> dict:
     model, processor = _load_model()
+
+    img = Image.open(image_path).convert("RGB")
+    img = img.resize((640, 640))
 
     allowed_hazards = ", ".join(HAZARD_TYPES.keys())
 
@@ -90,12 +112,13 @@ Example mappings:
         {
             "role": "user",
             "content": [
-                {"type": "image", "image": str(image_path)},
+                {"type": "image", "image": img},
                 {"type": "text", "text": prompt},
             ],
         }
     ]
 
+    t0 = time.time()
     inputs = processor.apply_chat_template(
         messages,
         tokenize=True,
@@ -108,10 +131,13 @@ Example mappings:
     with torch.no_grad():
         generated_ids = model.generate(
             **inputs,
-            max_new_tokens=512,
+            max_new_tokens=96,
             do_sample=False,
             temperature=0.0,
         )
+
+    if os.environ.get("COSMOS_TIMING"):
+        print("Cosmos structured latency:", round(time.time() - t0, 2), "s")
 
     generated_ids_trimmed = [
         out_ids[len(in_ids) :]
@@ -165,13 +191,17 @@ Rules:
     )
     inputs = inputs.to(model.device)
 
+    t0 = time.time()
     with torch.no_grad():
         generated_ids = model.generate(
             **inputs,
-            max_new_tokens=256,
+            max_new_tokens=128,
             do_sample=False,
             temperature=0.0,
         )
+
+    if os.environ.get("COSMOS_TIMING"):
+        print("Cosmos explanation latency:", round(time.time() - t0, 2), "s")
 
     generated_ids_trimmed = [
         out_ids[len(in_ids) :]
