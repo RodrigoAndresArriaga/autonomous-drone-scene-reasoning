@@ -132,7 +132,7 @@ Example mappings:
     with torch.no_grad():
         generated_ids = model.generate(
             **inputs,
-            max_new_tokens=80,
+            max_new_tokens=120,
             do_sample=False,
             use_cache=True,
         )
