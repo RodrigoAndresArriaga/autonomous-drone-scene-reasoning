@@ -54,14 +54,14 @@ def _load_model():
         try:
             _model = Qwen3VLForConditionalGeneration.from_pretrained(
                 model_name,
-                torch_dtype=torch.float16,
+                dtype=torch.float16,
                 device_map="auto",
                 attn_implementation="flash_attention_2",
             )
         except Exception:
             _model = Qwen3VLForConditionalGeneration.from_pretrained(
                 model_name,
-                torch_dtype=torch.float16,
+                dtype=torch.float16,
                 device_map="auto",
                 attn_implementation="sdpa",
             )
@@ -207,7 +207,6 @@ Rules:
             **inputs,
             max_new_tokens=128,
             do_sample=False,
-            temperature=0.0,
         )
 
     if os.environ.get("COSMOS_TIMING"):
