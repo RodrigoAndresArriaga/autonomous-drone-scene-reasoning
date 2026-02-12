@@ -101,6 +101,7 @@ Rules:
 - Do NOT modify hazard type names. Do NOT add prefixes or invent new categories.
 - If a scene element resembles a hazard, map it to the closest allowed type.
 - Output valid JSON only. No commentary.
+- Use compact JSON: no extra newlines, indentation, or whitespace (e.g. {{"hazards":[{{"type":"hole","severity":"critical"}}],"visibility_status":"clear"}}).
 
 Example mappings:
 - Collapsed staircase → hole
@@ -132,7 +133,7 @@ Example mappings:
     with torch.no_grad():
         generated_ids = model.generate(
             **inputs,
-            max_new_tokens=160,
+            max_new_tokens=200,
             do_sample=False,
             use_cache=True,
         )
