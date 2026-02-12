@@ -132,7 +132,7 @@ Example mappings:
     with torch.no_grad():
         generated_ids = model.generate(
             **inputs,
-            max_new_tokens=64,
+            max_new_tokens=80,
             do_sample=False,
             use_cache=True,
         )
@@ -141,7 +141,9 @@ Example mappings:
     if os.environ.get("COSMOS_TIMING"):
         print("Input prep:", round(t1 - t0, 2))
         print("Generate:", round(t2 - t1, 2))
-        print("model.config.use_cache:", getattr(model.config, "use_cache", "?"))
+        text_cfg = getattr(model.config, "text_config", None)
+        use_cache_val = getattr(text_cfg, "use_cache", None) if text_cfg else getattr(model.config, "use_cache", None)
+        print("model.config.use_cache:", use_cache_val)
 
     generated_ids_trimmed = [
         out_ids[len(in_ids) :]
@@ -158,7 +160,10 @@ Example mappings:
         end = decoded.rindex("}") + 1
         json_str = decoded[start:end]
         parsed = json.loads(json_str)
-    except Exception:
+    except Exception as e:
+        if os.environ.get("COSMOS_TIMING"):
+            print("JSON parse failed:", e)
+            print("Decoded snippet:", repr(decoded[:300] + "..." if len(decoded) > 300 else decoded))
         return {"hazards": [], "visibility_status": "unknown"}
 
     return parsed
