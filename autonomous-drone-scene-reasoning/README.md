@@ -66,21 +66,61 @@ These exclusions are intentional to keep the system focused on interpretable, ju
 
 ---
 
-## 4. High-level pipeline
+## 4. Core pipeline (v0.1, finalized)
+
+At version 0.1, the **core reasoning pipeline** is intentionally simple and judge-defensible:
+
+1. **Video frame(s)**  
+   Raw egocentric drone video frames (or short windows of frames).
+2. **Cosmos Reason 2 (scene + hazard extraction)**  
+   Query Cosmos Reason 2 to extract scene description, hazards, and relevant physical context from the video.
+3. **Structured hazard parsing**  
+   Convert free-form model output into a structured hazard representation (types, locations, severities, human relevance). Canonical hazard taxonomy: `reasoning/hazard_schema.py`.
+4. **Affordance layer (drone vs human)**  
+   Interpret hazards in terms of what is physically traversable for the drone vs what is traversable for a human follower.
+5. **Shared safety classification**  
+   Classify shared-path safety for both agents (e.g., Safe / Caution / Unsafe for drone, and Safe to follow / Follow with caution / Unsafe for human).
+6. **Navigation recommendation**  
+   Recommend a local navigation / guidance action conditioned on the shared safety classification.
+7. **Explanation**  
+   Produce a clear, textual explanation of the decision that can be audited by a human judge.
 
 ```mermaid
 flowchart TD
-    A[Egocentric Drone Video] --> B[Video Analytics Reasoning Agent]
-    B --> C[Egocentric Scene Understanding with Cosmos Reason 2]
-    C --> D[Hazard and Constraint Identification]
-    D --> E[Physical Plausibility and Safety Filtering]
-    E --> F[Dual Risk Map Drone vs Human]
-    F --> G[Optional Exit Context Update non-planning]
-    G --> H[Navigation and Guidance Recommendation]
-    H --> I[Textual Reasoning Explanation]
+    A[Video frame(s)] --> B[Cosmos Reason 2<br/>(scene + hazard extraction)]
+    B --> C[Structured hazard parsing]
+    C --> D[Affordance layer<br/>(Drone vs Human)]
+    D --> E[Shared safety classification]
+    E --> F[Navigation recommendation]
+    F --> G[Explanation]
 ```
 
-**In short:** Vision → Reasoning → Shared safety decision → Explanation.
+**Critically, the core pipeline excludes control and planning:**  
+- No planning  
+- No SLAM  
+- No trajectory generation  
+
+---
+
+### 4.2 Output contract (v0.2)
+
+Every frame must output the following canonical structure. Judges love explicit structure.
+
+```json
+{
+  "hazards": [...],
+  "drone_path_safety": "SAFE | CAUTION | UNSAFE",
+  "human_follow_safety": "SAFE | CAUTION | UNSAFE",
+  "recommendation": "...",
+  "explanation": "..."
+}
+```
+
+- **hazards** — Array of identified hazards (type, location, severity, human relevance).
+- **drone_path_safety** — One of `SAFE`, `CAUTION`, or `UNSAFE`.
+- **human_follow_safety** — One of `SAFE`, `CAUTION`, or `UNSAFE`.
+- **recommendation** — Navigation / guidance action (e.g., Proceed and guide human, Reroute before guiding).
+- **explanation** — Textual, physically grounded reasoning for the decision.
 
 ---
 
