@@ -144,8 +144,8 @@ def _build_media_content(media_path: str, media_type: str, fps: int = 4) -> dict
         return {"type": "image", "image": img}
     if media_type == "video":
         abs_path = str(Path(media_path).resolve())
-        uri = Path(abs_path).as_uri()
-        return {"type": "video", "video": uri, "fps": fps}
+        # transformers load_video expects a local path or http(s) URL, not file:// URI
+        return {"type": "video", "video": abs_path, "fps": fps}
     raise ValueError(f"Unknown media_type: {media_type!r}, must be 'image' or 'video'")
 
 
