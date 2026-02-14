@@ -201,15 +201,16 @@ def evaluate_scene(
     if os.environ.get("COSMOS_TIMING") == "1" or os.environ.get("COSMOS_EVAL_COUNTS") == "1":
         if _frames_total == 1 or _frames_total % _eval_log_interval == 0:
             cosmos_counts = get_cosmos_eval_counts()
-            logging.info(
-                "Cosmos eval: frames_total=%d frames_with_hazards=%d pct_non_empty=%.1f json_parse_failures=%d normalization_triggered=%d normalization_parse_failures=%d",
-                _frames_total,
-                _frames_with_hazards,
-                100.0 * _frames_with_hazards / _frames_total if _frames_total else 0,
-                cosmos_counts["json_parse_failures"],
-                _normalization_triggered_count,
-                cosmos_counts["normalization_parse_failures"],
+            msg = (
+                f"Cosmos eval: frames_total={_frames_total} frames_with_hazards={_frames_with_hazards} "
+                f"pct_non_empty={100.0 * _frames_with_hazards / _frames_total if _frames_total else 0:.1f}% "
+                f"json_parse_failures={cosmos_counts['json_parse_failures']} "
+                f"normalization_triggered={_normalization_triggered_count} "
+                f"normalization_parse_failures={cosmos_counts['normalization_parse_failures']}"
             )
+            logging.info("%s", msg)
+            if os.environ.get("COSMOS_TIMING") == "1":
+                print(msg)
 
     return {
         "hazards": validated_hazards,

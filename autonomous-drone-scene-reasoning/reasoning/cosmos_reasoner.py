@@ -235,6 +235,8 @@ Stop generation immediately after the closing brace.
         clean_up_tokenization_spaces=False,
     )[0]
 
+    if cfg.timing:
+        print("Layer 1 raw output:", repr(decoded[:500] + "..." if len(decoded) > 500 else decoded))
     # Return raw output; Layer 2 (normalize) interprets and structures it.
     return {"raw": decoded}
 
@@ -305,9 +307,11 @@ Rules:
 
     json_str = _preprocess_json(decoded)
     parsed = None
+    first_error = None
     try:
         parsed = json.loads(json_str)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        first_error = e
         json_str = _try_repair_normalize_json(json_str)
         try:
             parsed = json.loads(json_str)
@@ -316,13 +320,24 @@ Rules:
     if parsed is None:
         global _normalization_parse_failures
         _normalization_parse_failures += 1
+        if cfg.timing:
+            print("Layer 2 JSON parse failed:", first_error or "parse failed")
+            print("Layer 2 decoded snippet:", repr(decoded[:400] + "..." if len(decoded) > 400 else decoded))
         return {"hazards": [], "visibility_status": "unknown"}
 
-    parsed["hazards"] = [
+    raw_hazards = parsed.get("hazards", [])
+    filtered = [
         {"type": h["type"], "severity": h.get("severity", "medium")}
-        for h in parsed.get("hazards", [])
+        for h in raw_hazards
         if isinstance(h, dict) and h.get("type") in HAZARD_TYPES
     ]
+    if cfg.timing:
+        print("Layer 2 hazards (before filter):", raw_hazards)
+        dropped = [h.get("type") for h in raw_hazards if isinstance(h, dict) and h.get("type") not in HAZARD_TYPES]
+        if dropped:
+            print("Layer 2 hazard types dropped (not in HAZARD_TYPES):", dropped)
+        print("Layer 2 hazards (after filter):", filtered)
+    parsed["hazards"] = filtered
     vs = parsed.get("visibility_status", "unknown")
     parsed["visibility_status"] = vs if vs in ("clear", "occluded", "unknown") else "unknown"
     return parsed
