@@ -3,6 +3,7 @@
 # Layer 3: explanation of deterministic outcomes.
 
 import json
+import re
 import time
 from pathlib import Path
 
@@ -73,6 +74,45 @@ SYS_EXPLAIN = {
     "role": "system",
     "content": [{"type": "text", "text": "You are a helpful assistant specialized in explaining safety decisions using clear physical reasoning and the required format."}],
 }
+
+
+def _preprocess_json(text: str) -> str:
+    """Strip markdown fences and extract JSON object."""
+    text = text.strip()
+    if "```" in text:
+        # Remove ```json ... ``` or ``` ... ```
+        text = re.sub(r"^```(?:json)?\s*\n?", "", text)
+        text = re.sub(r"\n?```\s*$", "", text)
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start >= 0 and end > start:
+        return text[start:end]
+    return text
+
+
+def _try_repair_extract_json(json_str: str) -> str:
+    """Attempt to fix common model JSON issues before parsing."""
+    # Remove visibility_status from inside hazard objects (schema expects it only at top level)
+    # Pattern 1: ", \"visibility_status\": \"...\""
+    json_str = re.sub(r',\s*"visibility_status"\s*:\s*"[^"]*"', "", json_str)
+    # Pattern 2: "\"visibility_status\": \"...\"" (missing comma before - leaves invalid; remove whole kv)
+    json_str = re.sub(r'"visibility_status"\s*:\s*"[^"]*"\s*,?\s*', "", json_str)
+    # Fix trailing commas before ] or }
+    json_str = re.sub(r",\s*([\]}])", r"\1", json_str)
+    return json_str
+
+
+def _sanitize_extract_result(parsed: dict) -> dict:
+    """Ensure hazards have only type/severity; visibility_status at top level with valid enum."""
+    hazards = parsed.get("hazards", [])
+    sanitized = []
+    for h in hazards if isinstance(hazards, list) else []:
+        if isinstance(h, dict) and "type" in h and "severity" in h:
+            sanitized.append({"type": str(h["type"]), "severity": str(h["severity"])})
+    vs = parsed.get("visibility_status", "unknown")
+    if vs not in ("clear", "occluded", "unknown"):
+        vs = "unknown"
+    return {"hazards": sanitized, "visibility_status": vs}
 
 
 def _load_model():
@@ -212,12 +252,18 @@ Stop generation immediately after the closing brace.
         clean_up_tokenization_spaces=False,
     )[0]
 
+    json_str = _preprocess_json(decoded)
+    parsed = None
     try:
-        start = decoded.index("{")
-        end = decoded.rindex("}") + 1
-        json_str = decoded[start:end]
         parsed = json.loads(json_str)
-    except Exception as e:
+    except json.JSONDecodeError:
+        json_str = _try_repair_extract_json(json_str)
+        try:
+            parsed = json.loads(json_str)
+        except json.JSONDecodeError:
+            pass
+    if parsed is None:
+        e = "parse failed"
         global _json_parse_failures
         _json_parse_failures += 1
         if cfg.timing:
@@ -256,15 +302,14 @@ Return JSON only."""
                 repair_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
             )[0]
             try:
-                r_start = repair_decoded.index("{")
-                r_end = repair_decoded.rindex("}") + 1
-                parsed = json.loads(repair_decoded[r_start:r_end])
-                return parsed
+                r_str = _preprocess_json(repair_decoded)
+                parsed = json.loads(r_str)
+                return _sanitize_extract_result(parsed)
             except Exception:
                 pass
         return {"hazards": [], "visibility_status": "unknown"}
 
-    return parsed
+    return _sanitize_extract_result(parsed)
 
 
 def query_cosmos_structured(image_path: str) -> dict:
@@ -331,18 +376,25 @@ Rules:
         clean_up_tokenization_spaces=False,
     )[0]
 
+    json_str = _preprocess_json(decoded)
+    parsed = None
     try:
-        start = decoded.index("{")
-        end = decoded.rindex("}") + 1
-        parsed = json.loads(decoded[start:end])
-    except Exception:
+        parsed = json.loads(json_str)
+    except json.JSONDecodeError:
+        json_str = _try_repair_extract_json(json_str)
+        try:
+            parsed = json.loads(json_str)
+        except json.JSONDecodeError:
+            pass
+    if parsed is None:
         global _normalization_parse_failures
         _normalization_parse_failures += 1
         return {"hazards": [], "visibility_status": visibility_status}
 
     parsed["hazards"] = [
-        h for h in parsed.get("hazards", [])
-        if h.get("type") in HAZARD_TYPES
+        {"type": h["type"], "severity": h.get("severity", "medium")}
+        for h in parsed.get("hazards", [])
+        if isinstance(h, dict) and h.get("type") in HAZARD_TYPES
     ]
     parsed["visibility_status"] = parsed.get("visibility_status", visibility_status)
     return parsed
