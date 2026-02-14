@@ -90,29 +90,12 @@ def _preprocess_json(text: str) -> str:
     return text
 
 
-def _try_repair_extract_json(json_str: str) -> str:
-    """Attempt to fix common model JSON issues before parsing."""
-    # Remove visibility_status from inside hazard objects (schema expects it only at top level)
-    # Pattern 1: ", \"visibility_status\": \"...\""
+def _try_repair_normalize_json(json_str: str) -> str:
+    """Attempt to fix common model JSON issues before parsing (Layer 2 output)."""
     json_str = re.sub(r',\s*"visibility_status"\s*:\s*"[^"]*"', "", json_str)
-    # Pattern 2: "\"visibility_status\": \"...\"" (missing comma before - leaves invalid; remove whole kv)
     json_str = re.sub(r'"visibility_status"\s*:\s*"[^"]*"\s*,?\s*', "", json_str)
-    # Fix trailing commas before ] or }
     json_str = re.sub(r",\s*([\]}])", r"\1", json_str)
     return json_str
-
-
-def _sanitize_extract_result(parsed: dict) -> dict:
-    """Ensure hazards have only type/severity; visibility_status at top level with valid enum."""
-    hazards = parsed.get("hazards", [])
-    sanitized = []
-    for h in hazards if isinstance(hazards, list) else []:
-        if isinstance(h, dict) and "type" in h and "severity" in h:
-            sanitized.append({"type": str(h["type"]), "severity": str(h["severity"])})
-    vs = parsed.get("visibility_status", "unknown")
-    if vs not in ("clear", "occluded", "unknown"):
-        vs = "unknown"
-    return {"hazards": sanitized, "visibility_status": vs}
 
 
 def _load_model():
@@ -252,65 +235,8 @@ Stop generation immediately after the closing brace.
         clean_up_tokenization_spaces=False,
     )[0]
 
-    json_str = _preprocess_json(decoded)
-    parsed = None
-    first_error = None
-    try:
-        parsed = json.loads(json_str)
-    except json.JSONDecodeError as e:
-        first_error = e
-        json_str = _try_repair_extract_json(json_str)
-        try:
-            parsed = json.loads(json_str)
-        except json.JSONDecodeError:
-            pass
-    if parsed is None:
-        global _json_parse_failures
-        _json_parse_failures += 1
-        if cfg.timing:
-            print("JSON parse failed:", first_error or "parse failed")
-            print("Decoded snippet:", repr(decoded[:300] + "..." if len(decoded) > 300 else decoded))
-        # Repair uses the same SYS_ as the layer it repairs (Layer 1 -> SYS_EXTRACT; Layer 2 -> SYS_NORMALIZE if added)
-        if cfg.json_repair:
-            repair_prompt = f"""The following output was invalid JSON:
-
-{decoded}
-
-Convert it into valid JSON using the required schema.
-Required: hazards (array of objects with type and severity), visibility_status (clear, occluded, or unknown).
-Return JSON only."""
-            repair_messages = [SYS_EXTRACT, {"role": "user", "content": [{"type": "text", "text": repair_prompt}]}]
-            repair_inputs = processor.apply_chat_template(
-                repair_messages,
-                tokenize=True,
-                add_generation_prompt=True,
-                return_dict=True,
-                return_tensors="pt",
-            )
-            repair_inputs = repair_inputs.to(model.device)
-            with torch.no_grad():
-                repair_ids = model.generate(
-                    **repair_inputs,
-                    max_new_tokens=cfg.max_new_tokens_repair,
-                    do_sample=cfg.generation.do_sample,
-                    use_cache=cfg.generation.use_cache,
-                )
-            repair_trimmed = [
-                out[len(inp) :]
-                for inp, out in zip(repair_inputs.input_ids, repair_ids, strict=False)
-            ]
-            repair_decoded = processor.batch_decode(
-                repair_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
-            )[0]
-            try:
-                r_str = _preprocess_json(repair_decoded)
-                parsed = json.loads(r_str)
-                return _sanitize_extract_result(parsed)
-            except Exception:
-                pass
-        return {"hazards": [], "visibility_status": "unknown"}
-
-    return _sanitize_extract_result(parsed)
+    # Return raw output; Layer 2 (normalize) interprets and structures it.
+    return {"raw": decoded}
 
 
 def query_cosmos_structured(image_path: str) -> dict:
@@ -318,31 +244,31 @@ def query_cosmos_structured(image_path: str) -> dict:
     return query_cosmos_extract(image_path, media_type="image")
 
 
-# Layer 2: Taxonomy normalization. Cosmos receives raw hazards (open vocab) and maps to canonical types via reasoning.
-def query_cosmos_normalize(raw_hazards: list, visibility_status: str = "clear") -> dict:
-    """Map raw hazard list to canonical types. Text-only, no image."""
+# Layer 2: Taxonomy normalization. Cosmos receives raw Layer 1 output and extracts/maps to canonical types.
+def query_cosmos_normalize(raw_extraction: str) -> dict:
+    """Interpret raw Layer 1 output and map hazards to canonical types. Text-only, no image."""
     model, processor = _load_model()
 
     allowed_types = ", ".join(HAZARD_TYPES.keys())
 
-    prompt = f"""You are a hazard taxonomy normalizer. Map each hazard to the canonical type.
+    prompt = f"""You are a hazard taxonomy normalizer. The following is raw output from a hazard extraction model that analyzed an image or video. Extract all hazards mentioned and map each to a canonical type.
 
-Input hazards: {raw_hazards}
+Raw Layer 1 output:
+{raw_extraction}
 
 Allowed canonical types: {allowed_types}
 
-For each input hazard, reason about which canonical type it fits.
-Examples: incomplete stairs, collapsed staircase, missing steps → hole; debris pile, construction debris → unstable_debris_stack; exposed wiring, electrical hazard → electrical_exposure; blocked path, restricted exit → restricted_escape_route; partial floor collapse, floor collapse → partial_floor_collapse.
+Examples: incomplete stairs, collapsed staircase, missing steps, hole, excavation → hole; debris pile, construction debris → unstable_debris_stack; exposed wiring, electrical hazard → electrical_exposure; blocked path, restricted exit → restricted_escape_route; partial floor collapse, floor collapse → partial_floor_collapse; danger sign → map based on what it warns about.
 
 Return ONLY valid JSON:
-{{"hazards":[{{"type":"<canonical>","severity":"<low|medium|high|critical|contextual>"}}],"visibility_status":"{visibility_status}"}}
+{{"hazards":[{{"type":"<canonical>","severity":"<low|medium|high|critical|contextual>"}}],"visibility_status":"<clear|occluded|unknown>"}}
 
 Rules:
-- Map each input hazard to exactly one canonical type. Use reasoning.
-- Keep the original severity value. Do not increase or decrease it.
+- Extract every hazard from the raw output. Map each to exactly one canonical type.
+- Preserve the original severity (low, medium, high, critical, contextual).
 - Never invent hazards. Only map the ones given.
-- Output compact JSON only. No commentary.
-- visibility_status must be "{visibility_status}"."""
+- Extract visibility_status from the raw output if present; otherwise use "unknown".
+- Output compact JSON only. No commentary."""
 
     messages = [
         SYS_NORMALIZE,
@@ -382,7 +308,7 @@ Rules:
     try:
         parsed = json.loads(json_str)
     except json.JSONDecodeError:
-        json_str = _try_repair_extract_json(json_str)
+        json_str = _try_repair_normalize_json(json_str)
         try:
             parsed = json.loads(json_str)
         except json.JSONDecodeError:
@@ -390,14 +316,15 @@ Rules:
     if parsed is None:
         global _normalization_parse_failures
         _normalization_parse_failures += 1
-        return {"hazards": [], "visibility_status": visibility_status}
+        return {"hazards": [], "visibility_status": "unknown"}
 
     parsed["hazards"] = [
         {"type": h["type"], "severity": h.get("severity", "medium")}
         for h in parsed.get("hazards", [])
         if isinstance(h, dict) and h.get("type") in HAZARD_TYPES
     ]
-    parsed["visibility_status"] = parsed.get("visibility_status", visibility_status)
+    vs = parsed.get("visibility_status", "unknown")
+    parsed["visibility_status"] = vs if vs in ("clear", "occluded", "unknown") else "unknown"
     return parsed
 
 

@@ -116,16 +116,12 @@ def evaluate_scene(
     else:
         raw = _last_raw_extraction
 
-    # 2) Normalize hazards: if all canonical, pass through; else Cosmos Layer 2 maps to canonical types.
-    raw_hazards = raw.get("hazards", [])
-    visibility_status = raw.get("visibility_status", "clear")
-
-    if all(h.get("type") in HAZARD_TYPES for h in raw_hazards):
-        normalized = raw_hazards
-    else:
-        _normalization_triggered_count += 1
-        norm_result = query_cosmos_normalize(raw_hazards, visibility_status)
-        normalized = norm_result.get("hazards", [])
+    # 2) Layer 2 interprets raw output and maps hazards to canonical types.
+    _normalization_triggered_count += 1
+    raw_text = raw.get("raw", "")
+    norm_result = query_cosmos_normalize(raw_text)
+    normalized = norm_result.get("hazards", [])
+    visibility_status = norm_result.get("visibility_status", "unknown")
 
     # Deduplicate by hazard type, keep highest severity
     dedup = {}
