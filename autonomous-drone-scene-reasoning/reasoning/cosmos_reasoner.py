@@ -223,8 +223,7 @@ Stop generation immediately after the closing brace.
     t2 = time.time()
 
     if cfg.timing:
-        print("Input prep:", round(t1 - t0, 2))
-        print("Generate:", round(t2 - t1, 2))
+        print("[Layer 1] Input prep:", round(t1 - t0, 2), "s | Generate:", round(t2 - t1, 2), "s | Total:", round(t2 - t0, 2), "s")
         text_cfg = getattr(model.config, "text_config", None)
         use_cache_val = getattr(text_cfg, "use_cache", None) if text_cfg else getattr(model.config, "use_cache", None)
         print("model.config.use_cache:", use_cache_val)
@@ -281,6 +280,7 @@ Rules:
         {"role": "user", "content": [{"type": "text", "text": prompt}]},
     ]
 
+    t0 = time.time()
     inputs = processor.apply_chat_template(
         messages,
         tokenize=True,
@@ -343,6 +343,8 @@ Rules:
     parsed["hazards"] = filtered
     vs = parsed.get("visibility_status", "unknown")
     parsed["visibility_status"] = vs if vs in ("clear", "occluded", "unknown") else "unknown"
+    if cfg.timing:
+        print("[Layer 2] Normalize total:", round(time.time() - t0, 2), "s")
     return parsed
 
 
@@ -417,7 +419,7 @@ Rules:
         )
 
     if cfg.timing:
-        print("Cosmos explanation latency:", round(time.time() - t0, 2), "s")
+        print("[Layer 3] Explanation:", round(time.time() - t0, 2), "s")
 
     generated_ids_trimmed = [
         out_ids[len(in_ids) :]
