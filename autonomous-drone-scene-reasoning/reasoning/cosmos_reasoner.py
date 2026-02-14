@@ -93,7 +93,7 @@ def _preprocess_json(text: str) -> str:
 def _try_repair_normalize_json(json_str: str) -> str:
     """Attempt to fix common model JSON issues before parsing (Layer 2 output)."""
     # Fix missing comma before "visibility_status" (model often omits it)
-    json_str = re.sub(r'"([^"]+)"\s+"visibility_status"', r'"\1", "visibility_status"', json_str)
+    json_str = re.sub(r'"([^"]+)"\s*"visibility_status"', r'"\1", "visibility_status"', json_str)
     # Remove visibility_status from inside hazard objects (schema expects only at top level)
     json_str = re.sub(r',\s*"visibility_status"\s*:\s*"[^"]*"', "", json_str)
     json_str = re.sub(r'"visibility_status"\s*:\s*"[^"]*"\s*,?\s*', "", json_str)
@@ -310,23 +310,22 @@ Rules:
     )[0]
 
     json_str = _preprocess_json(decoded)
+    # Apply repair before first parse (Layer 2 often echoes malformed JSON from Layer 1)
+    json_str = _try_repair_normalize_json(json_str)
+    if cfg.timing:
+        print("Layer 2 JSON (after repair):", repr(json_str[:800] + "..." if len(json_str) > 800 else json_str))
     parsed = None
     first_error = None
     try:
         parsed = json.loads(json_str)
     except json.JSONDecodeError as e:
         first_error = e
-        json_str = _try_repair_normalize_json(json_str)
-        try:
-            parsed = json.loads(json_str)
-        except json.JSONDecodeError:
-            pass
+        if cfg.timing:
+            print("Layer 2 JSON parse failed:", first_error)
+            print("Layer 2 decoded (raw):", repr(decoded[:500] + "..." if len(decoded) > 500 else decoded))
     if parsed is None:
         global _normalization_parse_failures
         _normalization_parse_failures += 1
-        if cfg.timing:
-            print("Layer 2 JSON parse failed:", first_error or "parse failed")
-            print("Layer 2 decoded snippet:", repr(decoded[:400] + "..." if len(decoded) > 400 else decoded))
         return {"hazards": [], "visibility_status": "unknown"}
 
     raw_hazards = parsed.get("hazards", [])
