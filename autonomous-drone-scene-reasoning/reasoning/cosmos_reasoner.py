@@ -92,8 +92,12 @@ def _preprocess_json(text: str) -> str:
 
 def _try_repair_normalize_json(json_str: str) -> str:
     """Attempt to fix common model JSON issues before parsing (Layer 2 output)."""
+    # Fix missing comma before "visibility_status" (model often omits it)
+    json_str = re.sub(r'"([^"]+)"\s+"visibility_status"', r'"\1", "visibility_status"', json_str)
+    # Remove visibility_status from inside hazard objects (schema expects only at top level)
     json_str = re.sub(r',\s*"visibility_status"\s*:\s*"[^"]*"', "", json_str)
     json_str = re.sub(r'"visibility_status"\s*:\s*"[^"]*"\s*,?\s*', "", json_str)
+    # Fix trailing commas before ] or }
     json_str = re.sub(r",\s*([\]}])", r"\1", json_str)
     return json_str
 
