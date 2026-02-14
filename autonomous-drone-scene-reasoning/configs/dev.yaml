@@ -1,0 +1,16 @@
+# Dev profile: timing, larger tokens, verbose logging.
+# Load with CONFIG_PROFILE=dev
+
+cosmos:
+  timing: true
+  json_repair: true
+  image:
+    max_new_tokens: 256
+  video:
+    max_new_tokens: 640
+  max_new_tokens_normalize: 256
+  max_new_tokens_explanation: 256
+  max_new_tokens_repair: 256
+
+agent:
+  eval_log_every: 5

@@ -1,0 +1,30 @@
+# cosmos.video.fps: model-preferred fps for video; agent.fps_default is pipeline default
+cosmos:
+  model_name: "nvidia/Cosmos-Reason2-2B"
+  offline: false
+  timing: false
+  json_repair: false
+  image:
+    resize: true
+    resize_hw: [448, 448]
+    max_new_tokens: 200
+  video:
+    fps: 4
+    max_new_tokens: 512
+  generation:
+    do_sample: false
+    use_cache: true
+  attention_preference: ["flash_attention_2", "sdpa"]
+  max_new_tokens_normalize: 200
+  max_new_tokens_explanation: 200
+  max_new_tokens_repair: 200
+
+agent:
+  fps_default: 4
+  eval_log_every: 10
+  clip_seconds: 2.0
+  step_seconds: 2.0
+  memory:
+    max_memory: 5
+  explain:
+    cache_on_state_signature: true

@@ -64,7 +64,19 @@ These exclusions are intentional to keep the system focused on interpretable, ju
 
 ---
 
-## 4. Core pipeline (v0.1, finalized)
+## 4. Inference modes
+
+We support frame, clip, and rolling-window inference. Rolling-window emulates live operation by analyzing the most recent N seconds repeatedly. This adds temporal continuity without adding mapping/planning/control.
+
+| Mode | Input | Use case |
+|------|-------|----------|
+| **image** | Single image | Unit tests, quick taxonomy checks |
+| **video** | Full video file | Offline "analyze this whole clip" |
+| **rolling** | Video + clip_seconds, step_seconds | Real-time-like state updates without a live camera |
+
+---
+
+## 5. Core pipeline (v0.1, finalized)
 
 At version 0.1, the **core reasoning pipeline** is intentionally simple and judge-defensible:
 
@@ -83,7 +95,7 @@ At version 0.1, the **core reasoning pipeline** is intentionally simple and judg
 7. **Explanation**  
    Produce a clear, textual explanation of the decision that can be audited by a human judge.
 
-### 4.1 Design Philosophy: Deterministic Safety Core
+### 5.1 Design Philosophy: Deterministic Safety Core
 
 The system separates perception from safety logic. Cosmos Reason 2 performs structured hazard extraction only. All safety classification and navigation policy decisions are computed deterministically through explicit capability constraints and rule-based logic. This ensures interpretability, reproducibility, and judge-verifiable behavior. See `safety/affordance_model.py` (affordance layer) and `safety/recommendation.py` (policy table).
 
@@ -104,7 +116,7 @@ flowchart TD
 
 ---
 
-### 4.2 Output contract (v0.2)
+### 5.2 Output contract (v0.2)
 
 Every frame must output the following canonical structure. Judges love explicit structure.
 
@@ -130,7 +142,7 @@ Every frame must output the following canonical structure. Judges love explicit 
 
 ---
 
-## 5. Inputs / Outputs
+## 6. Inputs / Outputs
 
 **Inputs**
 
@@ -147,7 +159,7 @@ Every frame must output the following canonical structure. Judges love explicit 
 
 ---
 
-## 6. How Cosmos Reason 2 is used
+## 7. How Cosmos Reason 2 is used
 
 **Egocentric Social & Physical Reasoning (core reasoning engine)**  
 This project uses the Egocentric Social & Physical Reasoning recipe from the Cosmos Cookbook to perform embodied, robot-centric reasoning over egocentric video. The agent queries Cosmos Reason 2 to extract hazards, human presence, and spatial context for physical safety evaluation.
@@ -163,7 +175,7 @@ This project does not use the Intelligent Transportation post-training recipe. P
 
 ---
 
-## 7. How to run a demo
+## 8. How to run a demo
 
 **Prerequisites**
 
@@ -185,7 +197,7 @@ When you run a demo, you should see: detected hazards, drone path safety, human-
 
 ---
 
-## 8. System Behavior Under Latency
+## 9. System Behavior Under Latency
 
 Inference latency at 384–448 resolution averages 10–20 seconds per decision frame on an NVIDIA L4 GPU. Real-time performance is not required for this challenge, as the focus is reasoning quality rather than control.
 

@@ -1,0 +1,12 @@
+# Autonomous Drone Scene Reasoning — dependencies for fresh Brev instance
+# GPU: 2B model needs ~24GB VRAM. Install in a CUDA-equipped Brev machine.
+
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.45.0
+accelerate>=0.30.0
+Pillow>=10.0.0
+pyyaml>=6.0
+
+# Optional: flash-attn for faster inference (install separately if needed)
+# pip install flash-attn --no-build-isolation

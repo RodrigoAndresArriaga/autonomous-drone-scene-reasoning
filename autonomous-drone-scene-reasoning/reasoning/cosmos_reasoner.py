@@ -3,16 +3,30 @@
 # Layer 3: explanation of deterministic outcomes.
 
 import json
-import os
 import time
+from pathlib import Path
+
 import torch
 from PIL import Image
 from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
+from configs.config import get_config
 from .hazard_schema import HAZARD_TYPES
 
 _model = None
 _processor = None
+
+# Evaluation counters (log for judge credibility)
+_json_parse_failures = 0
+_normalization_parse_failures = 0
+
+
+def get_cosmos_eval_counts() -> dict:
+    return {
+        "json_parse_failures": _json_parse_failures,
+        "normalization_parse_failures": _normalization_parse_failures,
+    }
+
 
 # JSON schema for NIM structured output. Enum values must match HAZARD_TYPES.
 HAZARD_SCHEMA = {
@@ -45,83 +59,116 @@ HAZARD_SCHEMA = {
     "additionalProperties": False,
 }
 
+SYS_EXTRACT = {
+    "role": "system",
+    "content": [{"type": "text", "text": "You are a helpful assistant specialized in identifying physical hazards and visibility conditions from media (images or video clips)."}],
+}
+
+SYS_NORMALIZE = {
+    "role": "system",
+    "content": [{"type": "text", "text": "You are a helpful assistant specialized in mapping hazard descriptions into a fixed canonical hazard taxonomy."}],
+}
+
+SYS_EXPLAIN = {
+    "role": "system",
+    "content": [{"type": "text", "text": "You are a helpful assistant specialized in explaining safety decisions using clear physical reasoning and the required format."}],
+}
+
 
 def _load_model():
     global _model, _processor
     if _model is None:
-        model_name = "nvidia/Cosmos-Reason2-2B"
-        offline = os.environ.get("TRANSFORMERS_OFFLINE") == "1" or os.environ.get("HF_HUB_OFFLINE") == "1"
+        cfg = get_config().cosmos
+        model_name = cfg.model_name
+        offline = cfg.offline
         load_kw = {"local_files_only": offline} if offline else {}
         _processor = AutoProcessor.from_pretrained(model_name, **load_kw)
-        try:
-            _model = Qwen3VLForConditionalGeneration.from_pretrained(
-                model_name,
-                dtype=torch.float16,
-                device_map="auto",
-                attn_implementation="flash_attention_2",
-                **load_kw,
-            )
-        except Exception:
-            _model = Qwen3VLForConditionalGeneration.from_pretrained(
-                model_name,
-                dtype=torch.float16,
-                device_map="auto",
-                attn_implementation="sdpa",
-                **load_kw,
-            )
+        for attn_impl in cfg.attention_preference:
+            try:
+                _model = Qwen3VLForConditionalGeneration.from_pretrained(
+                    model_name,
+                    dtype=torch.float16,
+                    device_map="auto",
+                    attn_implementation=attn_impl,
+                    **load_kw,
+                )
+                break
+            except Exception:
+                continue
+        if _model is None:
+            raise RuntimeError(f"Failed to load model with any of {cfg.attention_preference}")
         if torch.cuda.is_available():
             dev = next(_model.parameters()).device
             if "cpu" in str(dev):
                 import warnings
                 warnings.warn(f"Model loaded on {dev}; expected cuda. Check device_map.")
-        if os.environ.get("COSMOS_TIMING"):
+        if cfg.timing:
             attn = getattr(_model.config, "_attn_implementation", None) or getattr(_model.config, "attn_implementation", "?")
             print("Attention implementation:", attn)
     return _model, _processor
 
-# Layer 1: Structured hazard extraction from image. Returns schema-constrained hazards + visibility_status. Cosmos does NOT output safety or recommendations. Cosmos only extracts hazards from the image.
-def query_cosmos_structured(image_path: str) -> dict:
+
+def _build_media_content(media_path: str, media_type: str, fps: int = 4) -> dict:
+    if media_type == "image":
+        img = Image.open(media_path).convert("RGB")
+        cfg = get_config().cosmos.image
+        if cfg.resize:
+            img = img.resize(cfg.resize_hw)
+        return {"type": "image", "image": img}
+    if media_type == "video":
+        abs_path = str(Path(media_path).resolve())
+        uri = Path(abs_path).as_uri()
+        return {"type": "video", "video": uri, "fps": fps}
+    raise ValueError(f"Unknown media_type: {media_type!r}, must be 'image' or 'video'")
+
+
+# Layer 1: Structured hazard extraction from image or video. Returns schema-constrained hazards + visibility_status.
+# Cosmos does NOT output safety or recommendations. Cosmos only extracts hazards from the media.
+def query_cosmos_extract(media_path: str, media_type: str = "image", fps: int = 4) -> dict:
     model, processor = _load_model()
 
-    img = Image.open(image_path).convert("RGB")
-    if os.environ.get("COSMOS_NO_RESIZE") != "1":
-        img = img.resize((448, 448))
+    media_item = _build_media_content(media_path, media_type, fps)
 
-    allowed_hazards = ", ".join(HAZARD_TYPES.keys())
+    prompt = """You are a structured hazard extraction engine for physical safety reasoning.
+You do NOT perform navigation, planning, or recommendations.
+You ONLY extract hazards and visibility status.
 
-    prompt = f"""Analyze the image and return ONLY valid JSON in the following format:
+Analyze the provided media (image or video clip) and return ONLY valid JSON.
 
-{{
+Describe each hazard in clear, specific terms based on what you observe.
+Examples: "incomplete stairs", "debris pile", "exposed electrical wiring", "collapsed staircase", "slippery floor".
+For severity use: low, medium, high, critical, or contextual.
+
+Field descriptions:
+- hazards: list of hazard objects.
+- type: describe the hazard in clear, specific terms (e.g. incomplete stairs, debris pile, exposed wiring).
+- severity: one of low, medium, high, critical, contextual.
+- visibility_status: describes forward path visibility.
+
+Format:
+{
   "hazards": [
-    {{"type": "<hazard_type>", "severity": "<low|medium|high|critical|contextual>"}}
+    {"type": "<hazard_description>", "severity": "<low|medium|high|critical|contextual>"}
   ],
   "visibility_status": "<clear|occluded|unknown>"
-}}
+}
 
-Allowed hazard types: {allowed_hazards}
+If no hazards are visible, return: {"hazards":[],"visibility_status":"clear"}
+If uncertain, use "unknown" for visibility_status.
+Never return null. Never omit required fields.
 
 Rules:
-- Each hazard's "type" field must be exactly one value from the allowed list (e.g. "hole", "debris").
+- Use descriptive hazard names based on what you see (e.g. incomplete stairs, debris pile, exposed wiring).
 - You may include multiple hazards in the array.
-- Do NOT modify hazard type names. Do NOT add prefixes or invent new categories.
-- If a scene element resembles a hazard, map it to the closest allowed type.
 - Output valid JSON only. No commentary.
-- Use compact JSON: no extra newlines, indentation, or whitespace (e.g. {{"hazards":[{{"type":"hole","severity":"critical"}}],"visibility_status":"clear"}}).
+- Use compact JSON: no extra newlines, indentation, or whitespace.
 
-Example mappings:
-- Collapsed staircase → hole
-- Construction debris pile → unstable_debris_stack
-- Blocked path → restricted_escape_route
+Stop generation immediately after the closing brace.
 """
 
     messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "image", "image": img},
-                {"type": "text", "text": prompt},
-            ],
-        }
+        SYS_EXTRACT,
+        {"role": "user", "content": [media_item, {"type": "text", "text": prompt}]},
     ]
 
     t0 = time.time()
@@ -131,20 +178,24 @@ Example mappings:
         add_generation_prompt=True,
         return_dict=True,
         return_tensors="pt",
+        fps=fps,
     )
     inputs = inputs.to(model.device)
     t1 = time.time()
 
+    cfg = get_config().cosmos
+    max_new_tokens = cfg.video.max_new_tokens if media_type == "video" else cfg.image.max_new_tokens
+
     with torch.no_grad():
         generated_ids = model.generate(
             **inputs,
-            max_new_tokens=200,
-            do_sample=False,
-            use_cache=True,
+            max_new_tokens=max_new_tokens,
+            do_sample=cfg.generation.do_sample,
+            use_cache=cfg.generation.use_cache,
         )
     t2 = time.time()
 
-    if os.environ.get("COSMOS_TIMING"):
+    if cfg.timing:
         print("Input prep:", round(t1 - t0, 2))
         print("Generate:", round(t2 - t1, 2))
         text_cfg = getattr(model.config, "text_config", None)
@@ -167,12 +218,135 @@ Example mappings:
         json_str = decoded[start:end]
         parsed = json.loads(json_str)
     except Exception as e:
-        if os.environ.get("COSMOS_TIMING"):
+        global _json_parse_failures
+        _json_parse_failures += 1
+        if cfg.timing:
             print("JSON parse failed:", e)
             print("Decoded snippet:", repr(decoded[:300] + "..." if len(decoded) > 300 else decoded))
+        # Repair uses the same SYS_ as the layer it repairs (Layer 1 -> SYS_EXTRACT; Layer 2 -> SYS_NORMALIZE if added)
+        if cfg.json_repair:
+            repair_prompt = f"""The following output was invalid JSON:
+
+{decoded}
+
+Convert it into valid JSON using the required schema.
+Required: hazards (array of objects with type and severity), visibility_status (clear, occluded, or unknown).
+Return JSON only."""
+            repair_messages = [SYS_EXTRACT, {"role": "user", "content": [{"type": "text", "text": repair_prompt}]}]
+            repair_inputs = processor.apply_chat_template(
+                repair_messages,
+                tokenize=True,
+                add_generation_prompt=True,
+                return_dict=True,
+                return_tensors="pt",
+            )
+            repair_inputs = repair_inputs.to(model.device)
+            with torch.no_grad():
+                repair_ids = model.generate(
+                    **repair_inputs,
+                    max_new_tokens=cfg.max_new_tokens_repair,
+                    do_sample=cfg.generation.do_sample,
+                    use_cache=cfg.generation.use_cache,
+                )
+            repair_trimmed = [
+                out[len(inp) :]
+                for inp, out in zip(repair_inputs.input_ids, repair_ids, strict=False)
+            ]
+            repair_decoded = processor.batch_decode(
+                repair_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+            )[0]
+            try:
+                r_start = repair_decoded.index("{")
+                r_end = repair_decoded.rindex("}") + 1
+                parsed = json.loads(repair_decoded[r_start:r_end])
+                return parsed
+            except Exception:
+                pass
         return {"hazards": [], "visibility_status": "unknown"}
 
     return parsed
+
+
+def query_cosmos_structured(image_path: str) -> dict:
+    """Deprecated: use query_cosmos_extract(image_path, media_type='image') instead."""
+    return query_cosmos_extract(image_path, media_type="image")
+
+
+# Layer 2: Taxonomy normalization. Cosmos receives raw hazards (open vocab) and maps to canonical types via reasoning.
+def query_cosmos_normalize(raw_hazards: list, visibility_status: str = "clear") -> dict:
+    """Map raw hazard list to canonical types. Text-only, no image."""
+    model, processor = _load_model()
+
+    allowed_types = ", ".join(HAZARD_TYPES.keys())
+
+    prompt = f"""You are a hazard taxonomy normalizer. Map each hazard to the canonical type.
+
+Input hazards: {raw_hazards}
+
+Allowed canonical types: {allowed_types}
+
+For each input hazard, reason about which canonical type it fits.
+Examples: incomplete stairs, collapsed staircase, missing steps → hole; debris pile, construction debris → unstable_debris_stack; exposed wiring, electrical hazard → electrical_exposure; blocked path, restricted exit → restricted_escape_route; partial floor collapse, floor collapse → partial_floor_collapse.
+
+Return ONLY valid JSON:
+{{"hazards":[{{"type":"<canonical>","severity":"<low|medium|high|critical|contextual>"}}],"visibility_status":"{visibility_status}"}}
+
+Rules:
+- Map each input hazard to exactly one canonical type. Use reasoning.
+- Keep the original severity value. Do not increase or decrease it.
+- Never invent hazards. Only map the ones given.
+- Output compact JSON only. No commentary.
+- visibility_status must be "{visibility_status}"."""
+
+    messages = [
+        SYS_NORMALIZE,
+        {"role": "user", "content": [{"type": "text", "text": prompt}]},
+    ]
+
+    inputs = processor.apply_chat_template(
+        messages,
+        tokenize=True,
+        add_generation_prompt=True,
+        return_dict=True,
+        return_tensors="pt",
+    )
+    inputs = inputs.to(model.device)
+
+    cfg = get_config().cosmos
+    with torch.no_grad():
+        generated_ids = model.generate(
+            **inputs,
+            max_new_tokens=cfg.max_new_tokens_normalize,
+            do_sample=cfg.generation.do_sample,
+            use_cache=cfg.generation.use_cache,
+        )
+
+    generated_ids_trimmed = [
+        out_ids[len(in_ids) :]
+        for in_ids, out_ids in zip(inputs.input_ids, generated_ids, strict=False)
+    ]
+    decoded = processor.batch_decode(
+        generated_ids_trimmed,
+        skip_special_tokens=True,
+        clean_up_tokenization_spaces=False,
+    )[0]
+
+    try:
+        start = decoded.index("{")
+        end = decoded.rindex("}") + 1
+        parsed = json.loads(decoded[start:end])
+    except Exception:
+        global _normalization_parse_failures
+        _normalization_parse_failures += 1
+        return {"hazards": [], "visibility_status": visibility_status}
+
+    parsed["hazards"] = [
+        h for h in parsed.get("hazards", [])
+        if h.get("type") in HAZARD_TYPES
+    ]
+    parsed["visibility_status"] = parsed.get("visibility_status", visibility_status)
+    return parsed
+
 
 # Layer 3: Strategic explanation. Cosmos receives hazards, safety, recommendation and produces clear explanation, human instructions, tactical justification. Cosmos explains the deterministic outcome; it does not compute it.
 def query_cosmos_explanation(context: dict) -> str:
@@ -187,34 +361,43 @@ Human safety: {context.get("safety", {}).get("human_follow_safety")}
 Recommendation: {context.get("recommendation", {}).get("recommendation")}
 Fallback available: {context.get("fallback_available", False)}
 
-Respond in this structured format:
+Agent constraints:
+Drone:
+- Can fly over gaps
+- Does not require stable ground
+- Sensitive to electricity, heat, entanglement
+
+Human:
+- Requires stable ground
+- Cannot fly over gaps
+- Sensitive to instability, collapse, confined air
+
+Return EXACTLY this structure:
 
 Hazards:
-[Summarize hazards and their physical relevance]
+<text>
 
 Drone Safety:
-[Why the drone classification — mention drone constraints: can fly over gaps, no stable ground required]
+<text>
 
 Human Safety:
-[Why the human classification — mention human constraints: requires stable ground, cannot fly over gaps, etc.]
+<text>
 
 Reasoning:
-[Physical reasoning tying constraints to the recommendation]
+<text>
 
 Rules:
 - Use physically grounded language. Refer to actual constraints (e.g., drone can fly over gaps; human requires stable ground).
 - Distinguish traversal affordances: what the drone can traverse vs what a human can traverse.
 - Do NOT change the recommendation.
-- Do NOT introduce new hazards.
+- Do not invent hazards not present in the input list. Only reference hazards explicitly provided.
 - Follow the structured format exactly.
 - If fallback_available is True, explain that a previously observed safe state may be preferable.
 - Do NOT specify spatial directions, distances, or path planning."""
 
     messages = [
-        {
-            "role": "user",
-            "content": [{"type": "text", "text": prompt}],
-        }
+        SYS_EXPLAIN,
+        {"role": "user", "content": [{"type": "text", "text": prompt}]},
     ]
 
     inputs = processor.apply_chat_template(
@@ -226,15 +409,16 @@ Rules:
     )
     inputs = inputs.to(model.device)
 
+    cfg = get_config().cosmos
     t0 = time.time()
     with torch.no_grad():
         generated_ids = model.generate(
             **inputs,
-            max_new_tokens=200,
-            do_sample=False,
+            max_new_tokens=cfg.max_new_tokens_explanation,
+            do_sample=cfg.generation.do_sample,
         )
 
-    if os.environ.get("COSMOS_TIMING"):
+    if cfg.timing:
         print("Cosmos explanation latency:", round(time.time() - t0, 2), "s")
 
     generated_ids_trimmed = [
