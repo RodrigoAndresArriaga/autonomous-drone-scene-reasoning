@@ -254,20 +254,21 @@ Stop generation immediately after the closing brace.
 
     json_str = _preprocess_json(decoded)
     parsed = None
+    first_error = None
     try:
         parsed = json.loads(json_str)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        first_error = e
         json_str = _try_repair_extract_json(json_str)
         try:
             parsed = json.loads(json_str)
         except json.JSONDecodeError:
             pass
     if parsed is None:
-        e = "parse failed"
         global _json_parse_failures
         _json_parse_failures += 1
         if cfg.timing:
-            print("JSON parse failed:", e)
+            print("JSON parse failed:", first_error or "parse failed")
             print("Decoded snippet:", repr(decoded[:300] + "..." if len(decoded) > 300 else decoded))
         # Repair uses the same SYS_ as the layer it repairs (Layer 1 -> SYS_EXTRACT; Layer 2 -> SYS_NORMALIZE if added)
         if cfg.json_repair:

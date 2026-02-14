@@ -5,7 +5,7 @@ cosmos:
   timing: true
   json_repair: true
   image:
-    max_new_tokens: 256
+    max_new_tokens: 384
   video:
     max_new_tokens: 640
   max_new_tokens_normalize: 256

@@ -7,7 +7,7 @@ cosmos:
   image:
     resize: true
     resize_hw: [448, 448]
-    max_new_tokens: 200
+    max_new_tokens: 384
   video:
     fps: 4
     max_new_tokens: 512
