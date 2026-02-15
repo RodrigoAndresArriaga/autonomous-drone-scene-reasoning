@@ -502,8 +502,19 @@ Return ONLY valid compact JSON:
 
 def _postprocess_explanation(text: str, rec_text: str) -> str:
     """Fix section headers and ensure Decision matches canonical recommendation."""
-    text = text.replace("DroneSafety:", "Drone Safety:")
-    text = text.replace("HumanSafety:", "Human Safety:")
+    # Normalize section headers (case-insensitive, allow optional extra spaces)
+    headers = [
+        ("Scene Context:", r"Scene\s*Context\s*:"),
+        ("Hazards:", r"Hazards\s*:"),
+        ("Drone Safety:", r"Drone\s*Safety\s*:"),
+        ("Human Safety:", r"Human\s*Safety\s*:"),
+        ("Decision:", r"Decision\s*:"),
+        ("Justification:", r"Justification\s*:"),
+    ]
+    for canonical, pattern in headers:
+        text = re.sub(pattern, canonical, text, flags=re.IGNORECASE)
+
+    # Replace Decision section content with exact rec_text
     match = re.search(r"(Decision:\s*\n)([^\n]+)", text)
     if match and match.group(2).strip() != rec_text:
         text = text[: match.start(2)] + rec_text + text[match.end(2) :]
