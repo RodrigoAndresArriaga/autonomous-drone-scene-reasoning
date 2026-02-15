@@ -7,14 +7,16 @@ Output: JSONL to outputs/scenario_rollup.jsonl.
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 # Add project root so agent, configs, utils import
 _project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_project_root))
 
-from agent.scene_agent import evaluate_scene
+from agent.scene_agent import evaluate_scene, get_evaluation_metrics
 from configs.config import get_config
+from utils.format_results import format_results
 from utils.video_clip import extract_clip_ctx, get_video_duration
 
 
@@ -34,8 +36,8 @@ def run_video_mode(video_path: Path, explain: bool) -> dict:
         "t_start": 0.0,
         "t_end": get_video_duration(str(video_path)),
         "hazards": result["hazards"],
-        "drone_safe": result["drone_path_safety"]["classification"],
-        "human_safe": result["human_follow_safety"]["classification"],
+        "drone_path_safety": result["drone_path_safety"],
+        "human_follow_safety": result["human_follow_safety"],
         "recommendation": result["recommendation"],
         "explanation": result.get("explanation"),
         "scene_summary": result.get("scene_summary"),
@@ -64,8 +66,8 @@ def run_rolling_mode(
             "t_start": round(t, 2),
             "t_end": round(t_end, 2),
             "hazards": result["hazards"],
-            "drone_safe": result["drone_path_safety"]["classification"],
-            "human_safe": result["human_follow_safety"]["classification"],
+            "drone_path_safety": result["drone_path_safety"],
+            "human_follow_safety": result["human_follow_safety"],
             "recommendation": result["recommendation"],
             "explanation": result.get("explanation"),
             "scene_summary": result.get("scene_summary"),
@@ -86,7 +88,8 @@ def main():
     )
     parser.add_argument("--clip-seconds", type=float, default=None, help="Override config clip_seconds")
     parser.add_argument("--step-seconds", type=float, default=None, help="Override config step_seconds")
-    parser.add_argument("--explain", action="store_true", help="Generate explanations")
+    parser.add_argument("--explain", action="store_true", default=True, help="Generate explanations (default: True)")
+    parser.add_argument("--no-explain", action="store_false", dest="explain", help="Disable explanations")
     parser.add_argument("-o", "--output", type=Path, default=None, help="Output JSONL path (default: outputs/scenario_rollup.jsonl)")
     args = parser.parse_args()
 
@@ -99,6 +102,8 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     all_rows = []
+    last_input_path = None
+    t0 = time.time()
     for i, video_path in enumerate(args.videos):
         video_path = video_path.resolve()
         if not video_path.exists():
@@ -108,36 +113,23 @@ def main():
         if args.mode == "video":
             row = run_video_mode(video_path, args.explain)
             all_rows.append(row)
+            last_input_path = str(video_path)
         else:
             rows = run_rolling_mode(
                 video_path, scenario_id, clip_sec, step_sec, fps, args.explain
             )
             all_rows.extend(rows)
+            last_input_path = str(video_path)
+    total_latency_s = time.time() - t0
 
     with open(out_path, "w", encoding="utf-8") as f:
         for row in all_rows:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
+    input_path = last_input_path or (str(args.videos[0]) if args.videos else "N/A")
+    metrics = get_evaluation_metrics()
+    print(format_results(all_rows, args.mode, input_path, metrics, total_latency_s))
     print(f"Wrote {len(all_rows)} rows to {out_path}")
-    if args.explain and all_rows:
-        for i, row in enumerate(all_rows):
-            scene_summary = row.get("scene_summary")
-            exp = row.get("explanation")
-            if not scene_summary and not exp:
-                continue
-            header = f"\n--- Layer 3 Explanation"
-            if len(all_rows) > 1:
-                header += f" (row {i + 1})"
-            print(header)
-            # Only print scene_summary when no explanation (explanation includes Scene Context)
-            if scene_summary and not exp:
-                print("Scene context:", scene_summary)
-            if exp:
-                if not isinstance(exp, str):
-                    print(f"WARNING: explanation is {type(exp)}, expected str")
-                elif exp.strip().startswith("{") or "'type':" in exp[:200]:
-                    print("WARNING: explanation may be echoed data, not prose")
-                print(exp)
 
 
 if __name__ == "__main__":

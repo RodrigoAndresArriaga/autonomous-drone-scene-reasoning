@@ -10,7 +10,7 @@
     "hazards": List[{"type": str, "severity": str}],
     "drone_path_safety": {"total_risk_score": int, "classification": str},
     "human_follow_safety": {"total_risk_score": int, "classification": str},
-    "recommendation": str,
+    "recommendation": dict,  # full rec from generate_navigation_recommendation
     "explanation": str | None,
     "perception_complexity_score": int,
     "latency_ms": float
@@ -51,6 +51,18 @@ _safe_state_memory = []
 _frames_total = 0
 _frames_with_hazards = 0
 _normalization_triggered_count = 0
+
+
+def get_evaluation_metrics() -> dict:
+    """Return evaluation counters for format_results."""
+    cosmos = get_cosmos_eval_counts()
+    return {
+        "frames_total": _frames_total,
+        "frames_with_hazards": _frames_with_hazards,
+        "normalization_triggered": _normalization_triggered_count,
+        "json_parse_failures": cosmos["json_parse_failures"],
+        "normalization_parse_failures": cosmos["normalization_parse_failures"],
+    }
 
 
 # Run full scene evaluation pipeline: Cosmos perception -> deterministic safety -> Cosmos explanation.
@@ -227,9 +239,9 @@ def evaluate_scene(
     # 6) Latency: calculate the latency of the pipeline.
     latency_ms = round((time.time() - start) * 1000, 2)
 
-    # Only log every N frames to avoid clutter; always log frame 1 for single-image demos
+    # Cosmos eval block: only when COSMOS_TIMING=1 (metrics appear in format_results by default)
     _eval_log_interval = get_config().agent.eval_log_every
-    if os.environ.get("COSMOS_TIMING") == "1" or os.environ.get("COSMOS_EVAL_COUNTS") == "1":
+    if os.environ.get("COSMOS_TIMING") == "1":
         if _frames_total == 1 or _frames_total % _eval_log_interval == 0:
             cosmos_counts = get_cosmos_eval_counts()
             msg = (
@@ -240,14 +252,13 @@ def evaluate_scene(
                 f"normalization_parse_failures={cosmos_counts['normalization_parse_failures']}"
             )
             logging.info("%s", msg)
-            if os.environ.get("COSMOS_TIMING") == "1":
-                print(msg)
+            print(msg)
 
     return {
         "hazards": validated_hazards,
         "drone_path_safety": safety["drone_path_safety"],
         "human_follow_safety": safety["human_follow_safety"],
-        "recommendation": rec["recommendation"],
+        "recommendation": rec,
         "explanation": explanation,
         "scene_summary": scene_summary,
         "perception_complexity_score": len(validated_hazards),
