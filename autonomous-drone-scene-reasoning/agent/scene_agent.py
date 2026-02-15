@@ -122,6 +122,7 @@ def evaluate_scene(
     norm_result = query_cosmos_normalize(raw_text)
     normalized = norm_result.get("hazards", [])
     visibility_status = norm_result.get("visibility_status", "unknown")
+    scene_summary = norm_result.get("scene_summary", "")
 
     # Deduplicate by (type, zone), keep highest severity per group
     dedup: dict[tuple[str, str], dict] = {}
@@ -194,7 +195,7 @@ def evaluate_scene(
     if explain:
         if state_signature != _last_state_signature:
             explanation = generate_explanation(
-                validated_hazards, safety, rec, fallback_available, raw_extraction=raw_text
+                validated_hazards, safety, rec, fallback_available, raw_extraction=raw_text, scene_summary=scene_summary
             )
             _last_explanation = explanation
             _last_state_signature = state_signature

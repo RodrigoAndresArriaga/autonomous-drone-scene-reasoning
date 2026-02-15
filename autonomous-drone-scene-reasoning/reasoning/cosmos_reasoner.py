@@ -12,6 +12,7 @@ from PIL import Image
 from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
 from configs.config import get_config
+from safety.affordance_model import SEVERITY_WEIGHTS
 from .hazard_schema import HAZARD_TYPES
 
 _model = None
@@ -177,7 +178,7 @@ def _fallback_extract_from_raw(raw_text: str) -> dict:
                 if canonical and canonical in HAZARD_TYPES:
                     hout = {"type": canonical, "severity": str(h.get("severity", "medium")), "zone": "unknown"}
                     hazards.append(hout)
-        return {"hazards": hazards, "visibility_status": "unknown"}
+        return {"hazards": hazards, "visibility_status": "unknown", "scene_summary": parsed.get("scene_summary", "")}
     except json.JSONDecodeError:
         pass
     for m in re.finditer(r'"type"\s*:\s*"([^"]+)"\s*,\s*"severity"\s*:\s*"([^"]+)"', json_str, re.IGNORECASE):
@@ -185,7 +186,7 @@ def _fallback_extract_from_raw(raw_text: str) -> dict:
         canonical = _map_raw_to_canonical(raw_type)
         if canonical:
             hazards.append({"type": canonical, "severity": severity, "zone": "unknown"})
-    return {"hazards": hazards, "visibility_status": "unknown"}
+    return {"hazards": hazards, "visibility_status": "unknown", "scene_summary": ""}
 
 
 def _load_model():
@@ -243,38 +244,32 @@ def query_cosmos_extract(media_path: str, media_type: str = "image", fps: int = 
     media_item = _build_media_content(media_path, media_type, fps)
 
     prompt = """You are a structured hazard extraction engine for physical safety reasoning.
-You do NOT perform navigation, planning, or recommendations.
-You ONLY extract hazards and visibility status.
 
 Analyze the provided media (image or video clip) and return ONLY valid JSON.
 
-Describe each hazard in clear, specific terms based on what you observe.
-Examples: "incomplete stairs", "debris pile", "exposed electrical wiring", "collapsed staircase", "slippery floor".
-For severity use: low, medium, high, critical, or contextual.
+First, provide a brief scene_summary (1-3 sentences) describing what is visibly present.
 
-Field descriptions:
-- hazards: list of hazard objects.
-- type: describe the hazard in clear, specific terms (e.g. incomplete stairs, debris pile, exposed wiring).
-- severity: one of low, medium, high, critical, contextual.
-- visibility_status: describes forward path visibility.
+Then list hazards.
 
 Format:
 {
+  "scene_summary": "<natural description of what is visible>",
   "hazards": [
     {"type": "<hazard_description>", "severity": "<low|medium|high|critical|contextual>"}
   ],
   "visibility_status": "<clear|occluded|unknown>"
 }
 
-If no hazards are visible, return: {"hazards":[],"visibility_status":"clear"}
+If no hazards are visible, return: {"scene_summary":"<description>","hazards":[],"visibility_status":"clear"}
 If uncertain, use "unknown" for visibility_status.
-Never return null. Never omit required fields.
 
 Rules:
-- Use descriptive hazard names based on what you see (e.g. incomplete stairs, debris pile, exposed wiring).
-- You may include multiple hazards in the array.
+- scene_summary must describe only what is visible. It must not include recommendations or safety advice.
+- Hazards MUST include a severity field.
+- Severity MUST be one of: low, medium, high, critical, contextual.
+- Do NOT omit severity under any circumstance.
+- Use descriptive hazard names (e.g. incomplete stairs, debris pile, collapsed staircase).
 - Output valid JSON only. No commentary.
-- Use compact JSON: no extra newlines, indentation, or whitespace.
 
 Stop generation immediately after the closing brace.
 """
@@ -459,13 +454,28 @@ Return ONLY valid compact JSON:
         if zone not in ("ground", "mid", "overhead", "unknown"):
             zone = "unknown"
         filtered.append({"type": htype, "severity": severity, "zone": zone})
+
+    # Collapse by (type, zone), keep highest severity per group (reduces log noise, prompt tokens)
+    dedup: dict[tuple[str, str], dict] = {}
+    for h in filtered:
+        key = (h["type"], h.get("zone", "unknown"))
+        if key not in dedup:
+            dedup[key] = h
+        else:
+            w = SEVERITY_WEIGHTS.get(h.get("severity", "medium"), 2)
+            dw = SEVERITY_WEIGHTS.get(dedup[key].get("severity", "medium"), 2)
+            if w > dw:
+                dedup[key] = h
+    filtered = list(dedup.values())
+
     if cfg.timing:
         print("Layer 2 hazards (before filter):", raw_hazards)
         dropped = [h.get("type") for h in raw_hazards if isinstance(h, dict) and h.get("type") not in HAZARD_TYPES]
         if dropped:
             print("Layer 2 hazard types dropped (not in HAZARD_TYPES):", dropped)
-        print("Layer 2 hazards (after filter):", filtered)
+        print("Layer 2 hazards (after collapse):", filtered)
     parsed["hazards"] = filtered
+    parsed["scene_summary"] = parsed.get("scene_summary", "")
     vs = parsed.get("visibility_status", "unknown")
     parsed["visibility_status"] = vs if vs in ("clear", "occluded", "unknown") else "unknown"
     if cfg.timing:
@@ -478,6 +488,7 @@ def query_cosmos_explanation(context: dict) -> str:
     model, processor = _load_model()
 
     raw_extraction = context.get("raw_extraction") or "N/A"
+    scene_summary = context.get("scene_summary") or ""
     hazards = context.get("hazards", [])
     rec = context.get("recommendation", {})
     rec_text = rec.get("recommendation", "") if isinstance(rec, dict) else str(rec)
@@ -496,8 +507,8 @@ def query_cosmos_explanation(context: dict) -> str:
 
     prompt = f"""Explain the deterministic safety decision below.
 
-Perception summary (what was detected in the scene):
-{raw_extraction}
+Observed scene summary:
+{scene_summary}
 
 {hazards_data}
 Canonical hazards (for safety logic): {hazards}

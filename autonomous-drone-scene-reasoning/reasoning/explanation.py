@@ -11,6 +11,7 @@ def generate_explanation(
     recommendation: dict,
     fallback_available: bool = False,
     raw_extraction: str | None = None,
+    scene_summary: str | None = None,
 ) -> str:
     context = {
         "hazards": hazards,
@@ -18,5 +19,6 @@ def generate_explanation(
         "recommendation": recommendation,
         "fallback_available": fallback_available,
         "raw_extraction": raw_extraction,
+        "scene_summary": scene_summary or "",
     }
     return query_cosmos_explanation(context)
