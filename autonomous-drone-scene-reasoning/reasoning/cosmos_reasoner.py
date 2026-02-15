@@ -3,6 +3,7 @@
 # Layer 3: explanation of deterministic outcomes.
 
 import json
+import logging
 import os
 import re
 import time
@@ -14,7 +15,10 @@ from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
 from configs.config import get_config
 from safety.affordance_model import SEVERITY_WEIGHTS
+from safety.recommendation import RECOMMENDATIONS
 from .hazard_schema import HAZARD_TYPES
+
+_FALLBACK_RECOMMENDATION = "Reroute (previously observed safe state available)"
 
 _model = None
 _processor = None
@@ -531,7 +535,12 @@ def query_cosmos_explanation(context: dict) -> str:
         print("DEBUG scene_summary:", (scene_summary or "")[:120])
     hazards = context.get("hazards", [])
     rec = context.get("recommendation", {})
+    # Recommendation from safety.recommendation.generate_navigation_recommendation (called in scene_agent, passed via context).
+    # Canonical values in RECOMMENDATIONS; scene_agent may override to fallback when previously observed safe state exists.
     rec_text = rec.get("recommendation", "") if isinstance(rec, dict) else str(rec)
+    _allowed = set(RECOMMENDATIONS.values()) | {_FALLBACK_RECOMMENDATION}
+    if rec_text and rec_text not in _allowed:
+        logging.warning("Layer 3: rec_text %r not in canonical RECOMMENDATIONS", rec_text)
     safety = context.get("safety", {})
 
     hazards_narrative = ", ".join(

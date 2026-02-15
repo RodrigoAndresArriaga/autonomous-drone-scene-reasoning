@@ -199,6 +199,7 @@ def evaluate_scene(
 
     if explain:
         if state_signature != _last_state_signature:
+            # rec from generate_navigation_recommendation (safety.recommendation), passed to explanation layer
             explanation = generate_explanation(
                 validated_hazards, safety, rec, fallback_available, raw_extraction=raw_text, scene_summary=scene_summary
             )
