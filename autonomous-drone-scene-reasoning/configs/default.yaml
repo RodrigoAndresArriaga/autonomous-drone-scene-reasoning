@@ -15,9 +15,9 @@ cosmos:
     do_sample: false
     use_cache: true
   attention_preference: ["flash_attention_2", "sdpa"]
-  max_new_tokens_normalize: 768
-  max_new_tokens_explanation: 200
-  max_new_tokens_repair: 200
+  max_new_tokens_normalize: 1024
+  max_new_tokens_explanation: 1024
+  max_new_tokens_repair: 1024
 
 agent:
   fps_default: 4

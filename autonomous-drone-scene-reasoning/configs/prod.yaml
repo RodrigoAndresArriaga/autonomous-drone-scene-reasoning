@@ -5,12 +5,12 @@ cosmos:
   timing: false
   json_repair: false
   image:
-    max_new_tokens: 384
+    max_new_tokens: 1024
   video:
-    max_new_tokens: 480
-  max_new_tokens_normalize: 768
-  max_new_tokens_explanation: 180
-  max_new_tokens_repair: 180
+    max_new_tokens: 1024
+  max_new_tokens_normalize: 1024
+  max_new_tokens_explanation: 1024
+  max_new_tokens_repair: 1024
 
 agent:
   eval_log_every: 25
