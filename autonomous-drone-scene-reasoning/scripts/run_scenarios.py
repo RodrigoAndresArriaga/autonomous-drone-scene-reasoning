@@ -117,6 +117,15 @@ def main():
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
     print(f"Wrote {len(all_rows)} rows to {out_path}")
+    if args.explain and all_rows:
+        for i, row in enumerate(all_rows):
+            exp = row.get("explanation")
+            if exp:
+                header = f"\n--- Layer 3 Explanation"
+                if len(all_rows) > 1:
+                    header += f" (row {i + 1})"
+                print(header)
+                print(exp)
 
 
 if __name__ == "__main__":
