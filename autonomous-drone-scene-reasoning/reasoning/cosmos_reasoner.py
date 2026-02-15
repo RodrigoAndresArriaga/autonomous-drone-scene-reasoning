@@ -580,7 +580,7 @@ Decision:
 <state the final deterministic recommendation exactly as given>
 
 Justification:
-<explain why the decision logically follows from constraints, zones, and agent capabilities>
+<3–5 sentences maximum. Do not repeat content. Stop after 5 sentences.>
 
 Rules:
 - Each section (Scene Context, Hazards, Drone Safety, Human Safety, Decision, Justification) must contain explanatory prose. Do NOT output raw dicts or JSON.
@@ -590,6 +590,9 @@ Rules:
 - Distinguish traversal affordances: what the drone can traverse vs what a human can traverse.
 - The Decision section must restate the exact recommendation provided. The Decision section must exactly match the text from "Deterministic recommendation (do not change)" above.
 - The Justification must explicitly connect violated constraints to that decision.
+- The Justification section must contain at most 5 sentences.
+- Do not repeat any sentence within or across sections.
+- End immediately after the justification. Do not continue generating.
 - Do not reinterpret or change the recommendation.
 - Do not invent hazards not present in the input. Only reference hazards explicitly provided.
 - Follow the structured format exactly.
@@ -617,6 +620,8 @@ Rules:
             **inputs,
             max_new_tokens=cfg.max_new_tokens_explanation,
             do_sample=cfg.generation.do_sample,
+            repetition_penalty=1.1,
+            no_repeat_ngram_size=3,
         )
 
     if cfg.timing:
