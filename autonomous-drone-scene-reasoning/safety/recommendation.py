@@ -1,5 +1,6 @@
-#Navigation recommendation logic: deterministic decision table. Maps drone + human classification to a single explicit recommendation.
-#No risk calculation. No external imports.
+# Navigation recommendation logic: deterministic decision table. Maps drone + human classification to a single explicit recommendation.
+# No risk calculation. No external imports.
+# Inputs from affordance_model (drone_class, human_class) and Layer 2 (visibility_status). Output drives Layer 3 explanation.
 
 RECOMMENDATIONS = {
     "PROCEED_AND_GUIDE": "Proceed and guide human",

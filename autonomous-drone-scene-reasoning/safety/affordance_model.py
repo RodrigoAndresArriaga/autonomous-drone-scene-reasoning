@@ -1,5 +1,6 @@
 # Affordance layer: maps structured hazards to drone vs human risk via capability constraints.
 # Independent of vision. No geometry, no ML, deterministic only.
+# Input: hazards from Layer 2. Output: drone_path_safety, human_follow_safety -> passed to recommendation.
 
 # Capability Profiles
 

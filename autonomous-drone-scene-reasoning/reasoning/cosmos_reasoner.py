@@ -16,6 +16,7 @@ from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 from configs.config import get_config
 from safety.affordance_model import SEVERITY_WEIGHTS
 from safety.recommendation import RECOMMENDATIONS
+from safety.scouting import VISIBILITY_STATUSES
 from .hazard_schema import HAZARD_TYPES
 
 _FALLBACK_RECOMMENDATION = "Reroute (previously observed safe state available)"
@@ -498,7 +499,7 @@ Return ONLY valid compact JSON:
     parsed["hazards"] = filtered
     parsed["scene_summary"] = parsed.get("scene_summary", "")
     vs = parsed.get("visibility_status", "unknown")
-    parsed["visibility_status"] = vs if vs in ("clear", "occluded", "unknown") else "unknown"
+    parsed["visibility_status"] = vs if vs in VISIBILITY_STATUSES else "unknown"
     if cfg.timing:
         print("[Layer 2] Normalize total:", round(time.time() - t0, 2), "s")
     return parsed

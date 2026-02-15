@@ -39,6 +39,7 @@ from safety.affordance_model import (
     classify_shared_safety,
 )
 from safety.recommendation import RECOMMENDATIONS, generate_navigation_recommendation
+from safety.scouting import VISIBILITY_STATUSES
 from utils.video_clip import extract_clip_ctx, get_video_duration
 
 _last_state_signature = None
@@ -127,6 +128,7 @@ def evaluate_scene(
     norm_result = query_cosmos_normalize(raw_text)
     normalized = norm_result.get("hazards", [])
     visibility_status = norm_result.get("visibility_status", "unknown")
+    visibility_status = visibility_status if visibility_status in VISIBILITY_STATUSES else "unknown"
     scene_summary = norm_result.get("scene_summary", "") or extract_scene_summary_from_layer1(raw_text)
 
     # Deduplicate by (type, zone), keep highest severity per group
@@ -178,6 +180,7 @@ def evaluate_scene(
         fallback_available = True
 
     # 4) Deterministic policy recommendation
+    # recommendation.Rule 3: drone=safe, human=unsafe -> "Proceed but do not guide" (RECOMMENDATIONS["PROCEED_DRONE_ONLY"])
     rec = generate_navigation_recommendation(
         safety["drone_path_safety"]["classification"],
         safety["human_follow_safety"]["classification"],
