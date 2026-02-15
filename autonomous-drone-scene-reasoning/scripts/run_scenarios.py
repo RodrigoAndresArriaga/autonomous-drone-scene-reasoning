@@ -121,6 +121,10 @@ def main():
         for i, row in enumerate(all_rows):
             exp = row.get("explanation")
             if exp:
+                if not isinstance(exp, str):
+                    print(f"\n--- WARNING: explanation is {type(exp)}, expected str ---")
+                elif exp.strip().startswith("{") or "'type':" in exp[:200]:
+                    print("\n--- WARNING: explanation may be echoed data, not prose ---")
                 header = f"\n--- Layer 3 Explanation"
                 if len(all_rows) > 1:
                     header += f" (row {i + 1})"

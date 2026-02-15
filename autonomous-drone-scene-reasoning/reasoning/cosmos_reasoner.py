@@ -3,6 +3,7 @@
 # Layer 3: explanation of deterministic outcomes.
 
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -489,6 +490,8 @@ def query_cosmos_explanation(context: dict) -> str:
 
     raw_extraction = context.get("raw_extraction") or "N/A"
     scene_summary = context.get("scene_summary") or ""
+    if os.environ.get("COSMOS_DEBUG") == "1":
+        print("DEBUG scene_summary:", (scene_summary or "")[:120])
     hazards = context.get("hazards", [])
     rec = context.get("recommendation", {})
     rec_text = rec.get("recommendation", "") if isinstance(rec, dict) else str(rec)
@@ -541,6 +544,8 @@ Human:
 - Sensitive to instability, collapse, confined air
 - Exposed to falling debris
 
+You MUST write natural language prose in each section. Do NOT copy, echo, or paste the raw data structures (hazards, drone_safety, human_safety) into your response. Explain in sentences that a human can read.
+
 Respond in this exact structure. Each section must start with the header and a newline:
 
 Hazards:
@@ -556,6 +561,7 @@ Reasoning:
 <text>
 
 Rules:
+- Each section (Hazards, Drone Safety, Human Safety, Reasoning) must contain explanatory prose. Do NOT output raw dicts or JSON.
 - Use physically grounded language. Refer to specific hazards from the perception summary.
 - Reference zone and violated constraints in your explanation to show embodied reasoning.
 - Explicitly mention agent constraints (e.g., drone can fly over gaps; human requires stable ground).
