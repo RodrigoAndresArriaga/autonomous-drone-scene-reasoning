@@ -38,6 +38,7 @@ def run_video_mode(video_path: Path, explain: bool) -> dict:
         "human_safe": result["human_follow_safety"]["classification"],
         "recommendation": result["recommendation"],
         "explanation": result.get("explanation"),
+        "scene_summary": result.get("scene_summary"),
         "latency_ms": result["latency_ms"],
     }
 
@@ -67,6 +68,7 @@ def run_rolling_mode(
             "human_safe": result["human_follow_safety"]["classification"],
             "recommendation": result["recommendation"],
             "explanation": result.get("explanation"),
+            "scene_summary": result.get("scene_summary"),
             "latency_ms": result["latency_ms"],
         })
         t += step_sec
@@ -119,16 +121,21 @@ def main():
     print(f"Wrote {len(all_rows)} rows to {out_path}")
     if args.explain and all_rows:
         for i, row in enumerate(all_rows):
+            scene_summary = row.get("scene_summary")
             exp = row.get("explanation")
+            if not scene_summary and not exp:
+                continue
+            header = f"\n--- Layer 3 Explanation"
+            if len(all_rows) > 1:
+                header += f" (row {i + 1})"
+            print(header)
+            if scene_summary:
+                print("Scene context:", scene_summary)
             if exp:
                 if not isinstance(exp, str):
-                    print(f"\n--- WARNING: explanation is {type(exp)}, expected str ---")
+                    print(f"WARNING: explanation is {type(exp)}, expected str")
                 elif exp.strip().startswith("{") or "'type':" in exp[:200]:
-                    print("\n--- WARNING: explanation may be echoed data, not prose ---")
-                header = f"\n--- Layer 3 Explanation"
-                if len(all_rows) > 1:
-                    header += f" (row {i + 1})"
-                print(header)
+                    print("WARNING: explanation may be echoed data, not prose")
                 print(exp)
 
 

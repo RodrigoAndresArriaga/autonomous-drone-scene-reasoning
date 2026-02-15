@@ -166,6 +166,22 @@ def _map_raw_to_canonical(raw_type: str) -> str | None:
     return None
 
 
+def extract_scene_summary_from_layer1(raw_text: str) -> str:
+    """Extract scene_summary from Layer 1 raw output. Layer 2 may not pass it through."""
+    if not raw_text or not raw_text.strip():
+        return ""
+    json_str = _preprocess_json(raw_text)
+    try:
+        parsed = json.loads(json_str)
+        return str(parsed.get("scene_summary", "")).strip()
+    except json.JSONDecodeError:
+        pass
+    m = re.search(r'"scene_summary"\s*:\s*"((?:[^"\\]|\\.)*)"', raw_text, re.IGNORECASE | re.DOTALL)
+    if m:
+        return m.group(1).replace("\\n", "\n").strip()
+    return ""
+
+
 def _fallback_extract_from_raw(raw_text: str) -> dict:
     """When Layer 2 parse fails, extract hazards from raw Layer 1 text via regex and map to canonical."""
     json_str = _preprocess_json(raw_text)
@@ -497,36 +513,35 @@ def query_cosmos_explanation(context: dict) -> str:
     rec_text = rec.get("recommendation", "") if isinstance(rec, dict) else str(rec)
     safety = context.get("safety", {})
 
-    hazards_line = ", ".join(
-        f"({h.get('type', '?')}, {h.get('severity', 'medium')}, {h.get('zone', 'unknown')})"
+    hazards_narrative = ", ".join(
+        f"{h.get('type', '?')} ({h.get('severity', 'medium')}, zone={h.get('zone', 'unknown')})"
         for h in hazards
-    )
-    hazards_data = f"Hazards(type,severity,zone): [{hazards_line}]" if hazards else "Hazards(type,severity,zone): []"
+    ) if hazards else "None observed"
     drone_safety = safety.get("drone_path_safety", {})
     human_safety = safety.get("human_follow_safety", {})
+    drone_class = drone_safety.get("classification", "unknown")
+    drone_risk = drone_safety.get("total_risk_score", 0)
+    human_class = human_safety.get("classification", "unknown")
+    human_risk = human_safety.get("total_risk_score", 0)
     drone_violated = drone_safety.get("violated_constraints", [])
     human_violated = human_safety.get("violated_constraints", [])
-    violations = safety.get("violations", [])
+
+    drone_narrative = f"{drone_class} (risk {drone_risk})" + (
+        f", violated: {', '.join(drone_violated)}" if drone_violated else ""
+    )
+    human_narrative = f"{human_class} (risk {human_risk})" + (
+        f", violated: {', '.join(human_violated)}" if human_violated else ""
+    )
 
     prompt = f"""Explain the deterministic safety decision below.
 
 Observed scene summary:
-{scene_summary}
+{scene_summary or "(none provided)"}
 
-{hazards_data}
-Canonical hazards (for safety logic): {hazards}
-
-Drone safety: {drone_safety}
-Drone violated constraints: {drone_violated}
-
-Human safety: {human_safety}
-Human violated constraints: {human_violated}
-"""
-    if violations:
-        prompt += f"""Per-hazard violations: {violations}
-
-"""
-    prompt += f"""Recommendation: {rec_text}
+Hazards (type, severity, zone): {hazards_narrative}
+Drone safety: {drone_narrative}
+Human safety: {human_narrative}
+Recommendation: {rec_text}
 Fallback available: {context.get("fallback_available", False)}
 
 Agent constraints:
@@ -566,7 +581,7 @@ Rules:
 - Reference zone and violated constraints in your explanation to show embodied reasoning.
 - Explicitly mention agent constraints (e.g., drone can fly over gaps; human requires stable ground).
 - Distinguish traversal affordances: what the drone can traverse vs what a human can traverse.
-- Include the final recommendation in your Reasoning section.
+- The Reasoning section MUST include: (1) scene context describing what was observed; (2) next move (hold position, continue, or reroute); (3) rationale for why this recommendation was chosen.
 - Do NOT change the recommendation.
 - Do not invent hazards not present in the input. Only reference hazards explicitly provided.
 - Follow the structured format exactly.

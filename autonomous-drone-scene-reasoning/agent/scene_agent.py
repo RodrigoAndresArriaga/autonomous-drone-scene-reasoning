@@ -23,7 +23,12 @@ import time
 from pathlib import Path
 from typing import Literal
 
-from reasoning.cosmos_reasoner import get_cosmos_eval_counts, query_cosmos_extract, query_cosmos_normalize
+from reasoning.cosmos_reasoner import (
+    extract_scene_summary_from_layer1,
+    get_cosmos_eval_counts,
+    query_cosmos_extract,
+    query_cosmos_normalize,
+)
 from reasoning.explanation import generate_explanation
 from reasoning.hazard_schema import HAZARD_TYPES
 from configs.config import get_config
@@ -122,7 +127,7 @@ def evaluate_scene(
     norm_result = query_cosmos_normalize(raw_text)
     normalized = norm_result.get("hazards", [])
     visibility_status = norm_result.get("visibility_status", "unknown")
-    scene_summary = norm_result.get("scene_summary", "")
+    scene_summary = norm_result.get("scene_summary", "") or extract_scene_summary_from_layer1(raw_text)
 
     # Deduplicate by (type, zone), keep highest severity per group
     dedup: dict[tuple[str, str], dict] = {}
@@ -227,6 +232,7 @@ def evaluate_scene(
         "human_follow_safety": safety["human_follow_safety"],
         "recommendation": rec["recommendation"],
         "explanation": explanation,
+        "scene_summary": scene_summary,
         "perception_complexity_score": len(validated_hazards),
         "latency_ms": latency_ms,
     }
