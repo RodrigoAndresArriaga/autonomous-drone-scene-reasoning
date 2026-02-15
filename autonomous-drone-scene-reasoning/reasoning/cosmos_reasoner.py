@@ -500,6 +500,16 @@ Return ONLY valid compact JSON:
     return parsed
 
 
+def _postprocess_explanation(text: str, rec_text: str) -> str:
+    """Fix section headers and ensure Decision matches canonical recommendation."""
+    text = text.replace("DroneSafety:", "Drone Safety:")
+    text = text.replace("HumanSafety:", "Human Safety:")
+    match = re.search(r"(Decision:\s*\n)([^\n]+)", text)
+    if match and match.group(2).strip() != rec_text:
+        text = text[: match.start(2)] + rec_text + text[match.end(2) :]
+    return text
+
+
 # Layer 3: Strategic explanation. Cosmos receives hazards, safety, recommendation and produces clear explanation, human instructions, tactical justification. Cosmos explains the deterministic outcome; it does not compute it.
 def query_cosmos_explanation(context: dict) -> str:
     model, processor = _load_model()
@@ -596,6 +606,7 @@ Rules:
 - Do not reinterpret or change the recommendation.
 - Do not invent hazards not present in the input. Only reference hazards explicitly provided.
 - Follow the structured format exactly.
+- Use exact section headers including the space: "Drone Safety:", "Human Safety:".
 - If fallback_available is True, explain that a previously observed safe state may be preferable.
 - Do NOT specify spatial directions, distances, or path planning."""
 
@@ -637,4 +648,5 @@ Rules:
         clean_up_tokenization_spaces=False,
     )[0]
 
+    decoded = _postprocess_explanation(decoded, rec_text)
     return decoded.strip()

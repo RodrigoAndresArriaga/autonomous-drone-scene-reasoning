@@ -9,7 +9,7 @@ cosmos:
   video:
     max_new_tokens: 1024
   max_new_tokens_normalize: 1024
-  max_new_tokens_explanation: 280
+  max_new_tokens_explanation: 320
   max_new_tokens_repair: 1024
 
 agent:
