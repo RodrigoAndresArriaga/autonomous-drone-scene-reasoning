@@ -507,6 +507,14 @@ Return ONLY valid compact JSON:
 
 def _postprocess_explanation(text: str, rec_text: str) -> str:
     """Fix section headers and ensure Decision matches canonical recommendation."""
+    # Remove duplicate Scene Context blocks: "Scene context: X" echoed before "Scene Context:\nY"
+    text = re.sub(
+        r"^Scene\s+[Cc]ontext:\s*.+$\n+(?=Scene\s+[Cc]ontext:\s*\n)",
+        "",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
     # Normalize section headers (case-insensitive, allow optional extra spaces)
     headers = [
         ("Scene Context:", r"Scene\s*Context\s*:"),

@@ -129,7 +129,8 @@ def main():
             if len(all_rows) > 1:
                 header += f" (row {i + 1})"
             print(header)
-            if scene_summary:
+            # Only print scene_summary when no explanation (explanation includes Scene Context)
+            if scene_summary and not exp:
                 print("Scene context:", scene_summary)
             if exp:
                 if not isinstance(exp, str):
