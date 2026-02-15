@@ -5,37 +5,36 @@
 
 from typing import TypedDict
 
-# Canonical hazard types: affects = agent(s) impacted, severity = default severity
+# Canonical hazard types: severity = default severity (constraint mapping in affordance_model)
 HAZARD_TYPES = {
-    "hole": {"affects": ["human", "drone_low_altitude"], "severity": "high"},
-    "unstable_ground": {"affects": ["human"], "severity": "medium"},
-    "narrow_passage": {"affects": ["human", "large_drone"], "severity": "contextual"},
-    "debris": {"affects": ["human"], "severity": "medium"},
-    "low_visibility_dropoff": {"affects": ["human", "drone_low_altitude"],"severity": "high",},
-    "partial_floor_collapse": {"affects": ["human"], "severity": "high"},
-    "electrical_exposure": {"affects": ["human"], "severity": "critical"},
-    "slippery_surface": {"affects": ["human"], "severity": "medium"},
-    "overhead_instability": {"affects": ["human", "drone"], "severity": "high"},
-    "confined_air_pocket": {"affects": ["human"], "severity": "critical"},
-    "heat_source_proximity": {"affects": ["human", "drone"], "severity": "high"},
-    "entanglement_risk": {"affects": ["human", "drone"], "severity": "medium"},
-    "visual_misleading_path": {"affects": ["human"], "severity": "contextual"},
-    "water_depth_uncertain": {"affects": ["human", "ground_robot"], "severity": "high"},
-    "unstable_debris_stack": {"affects": ["human"], "severity": "high"},
-    "restricted_escape_route": {"affects": ["human"], "severity": "contextual"},
-    "blind_corner": {"affects": ["human", "drone"], "severity": "contextual"},
-    "unstable_vehicle": {"affects": ["human"], "severity": "high"},
-    "sharp_protrusion": {"affects": ["human", "drone_low_altitude"],"severity": "medium",},
+    "hole": {"severity": "high"},
+    "unstable_ground": {"severity": "medium"},
+    "narrow_passage": {"severity": "contextual"},
+    "debris": {"severity": "medium"},
+    "low_visibility_dropoff": {"severity": "high"},
+    "partial_floor_collapse": {"severity": "high"},
+    "electrical_exposure": {"severity": "critical"},
+    "slippery_surface": {"severity": "medium"},
+    "overhead_instability": {"severity": "high"},
+    "confined_air_pocket": {"severity": "critical"},
+    "heat_source_proximity": {"severity": "high"},
+    "entanglement_risk": {"severity": "medium"},
+    "visual_misleading_path": {"severity": "contextual"},
+    "water_depth_uncertain": {"severity": "high"},
+    "unstable_debris_stack": {"severity": "high"},
+    "restricted_escape_route": {"severity": "contextual"},
+    "blind_corner": {"severity": "contextual"},
+    "unstable_vehicle": {"severity": "high"},
+    "sharp_protrusion": {"severity": "medium"},
 }
 
 
 class HazardInstance(TypedDict, total=False):
-    #Hazard instance aligned with output contract hazards array.
-
+    # Hazard instance aligned with output contract hazards array.
     type: str
     location: str | None
     severity: str
-    affects_human: bool
+    zone: str  # ground | mid | overhead | unknown
 
 
 def get_hazard_info(type_key: str) -> dict | None:

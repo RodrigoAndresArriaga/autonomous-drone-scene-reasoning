@@ -123,17 +123,19 @@ def evaluate_scene(
     normalized = norm_result.get("hazards", [])
     visibility_status = norm_result.get("visibility_status", "unknown")
 
-    # Deduplicate by hazard type, keep highest severity
-    dedup = {}
+    # Deduplicate by (type, zone), keep highest severity per group
+    dedup: dict[tuple[str, str], dict] = {}
     for h in normalized:
-        t = h["type"]
-        if t not in dedup:
-            dedup[t] = h
+        t = h.get("type", "")
+        z = h.get("zone", "unknown")
+        key = (t, z)
+        if key not in dedup:
+            dedup[key] = h
         else:
             w = SEVERITY_WEIGHTS.get(h.get("severity", "medium"), 2)
-            dw = SEVERITY_WEIGHTS.get(dedup[t].get("severity", "medium"), 2)
+            dw = SEVERITY_WEIGHTS.get(dedup[key].get("severity", "medium"), 2)
             if w > dw:
-                dedup[t] = h
+                dedup[key] = h
     validated_hazards = list(dedup.values())
     if validated_hazards:
         _frames_with_hazards += 1
@@ -175,8 +177,12 @@ def evaluate_scene(
         rec["recommendation"] = "Reroute (previously observed safe state available)"
 
     # 5) Cosmos explanation: only when decision state changes
+    hazard_tuples = [
+        (h["type"], h.get("severity", "medium"), h.get("zone", "unknown"))
+        for h in validated_hazards
+    ]
     state_signature = (
-        tuple(sorted((h["type"], h.get("severity", "medium")) for h in validated_hazards)),
+        tuple(sorted(hazard_tuples)),
         safety["drone_path_safety"]["classification"],
         safety["human_follow_safety"]["classification"],
         rec["recommendation"],
@@ -187,7 +193,9 @@ def evaluate_scene(
 
     if explain:
         if state_signature != _last_state_signature:
-            explanation = generate_explanation(validated_hazards, safety, rec, fallback_available)
+            explanation = generate_explanation(
+                validated_hazards, safety, rec, fallback_available, raw_extraction=raw_text
+            )
             _last_explanation = explanation
             _last_state_signature = state_signature
         else:

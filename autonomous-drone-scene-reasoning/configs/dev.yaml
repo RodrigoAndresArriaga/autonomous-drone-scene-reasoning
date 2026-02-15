@@ -8,7 +8,7 @@ cosmos:
     max_new_tokens: 384
   video:
     max_new_tokens: 640
-  max_new_tokens_normalize: 512
+  max_new_tokens_normalize: 1024
   max_new_tokens_explanation: 256
   max_new_tokens_repair: 256
 

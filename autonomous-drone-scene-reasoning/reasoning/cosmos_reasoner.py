@@ -102,6 +102,92 @@ def _try_repair_normalize_json(json_str: str) -> str:
     return json_str
 
 
+# Raw type (from Layer 1) -> canonical type for fallback when Layer 2 parse fails
+_RAW_TO_CANONICAL = {
+    "fire": "heat_source_proximity",
+    "flames": "heat_source_proximity",
+    "barbed wire": "entanglement_risk",
+    "razor wire": "entanglement_risk",
+    "hanging cable": "entanglement_risk",
+    "hanging wires": "entanglement_risk",
+    "suspended cables": "entanglement_risk",
+    "collapsed staircase": "partial_floor_collapse",
+    "collapsed floor": "partial_floor_collapse",
+    "collapsed wooden beams": "partial_floor_collapse",
+    "collapsed beams": "partial_floor_collapse",
+    "hole": "hole",
+    "excavation": "hole",
+    "collapsed furniture": "unstable_debris_stack",
+    "collapsed couch": "unstable_debris_stack",
+    "collapsed sofa": "unstable_debris_stack",
+    "collapsed fireplace": "unstable_debris_stack",
+    "collapsed television": "unstable_debris_stack",
+    "collapsed television stand": "unstable_debris_stack",
+    "collapsed television screen": "unstable_debris_stack",
+    "debris": "unstable_debris_stack",
+    "electrical": "electrical_exposure",
+    "wiring": "electrical_exposure",
+    "exposed wiring": "electrical_exposure",
+    "low ceiling": "narrow_passage",
+    "overhang": "narrow_passage",
+    "blocked doorway": "restricted_escape_route",
+    "blocked path": "restricted_escape_route",
+    "hanging debris": "overhead_instability",
+    "collapsing ceiling": "overhead_instability",
+}
+
+
+def _map_raw_to_canonical(raw_type: str) -> str | None:
+    """Map raw hazard type to canonical HAZARD_TYPES key, or None if no mapping."""
+    t = raw_type.strip().lower()
+    if t in _RAW_TO_CANONICAL:
+        canonical = _RAW_TO_CANONICAL[t]
+        return canonical if canonical in HAZARD_TYPES else None
+    if "collapsed" in t and ("stair" in t or "floor" in t or "beam" in t):
+        return "partial_floor_collapse"
+    if "collapsed" in t or "debris" in t:
+        return "unstable_debris_stack"
+    if "fire" in t or "flame" in t:
+        return "heat_source_proximity"
+    if ("hanging" in t and ("debris" in t or "ceiling" in t)) or "collapsing" in t:
+        return "overhead_instability"
+    if "barbed" in t or "razor" in t or "wire" in t or "cable" in t or "hanging" in t:
+        return "entanglement_risk"
+    if "hole" in t or "excavation" in t:
+        return "hole"
+    if "electrical" in t or "wiring" in t:
+        return "electrical_exposure"
+    if "low ceiling" in t or "overhang" in t:
+        return "narrow_passage"
+    if "blocked" in t and ("door" in t or "path" in t or "exit" in t):
+        return "restricted_escape_route"
+    return None
+
+
+def _fallback_extract_from_raw(raw_text: str) -> dict:
+    """When Layer 2 parse fails, extract hazards from raw Layer 1 text via regex and map to canonical."""
+    json_str = _preprocess_json(raw_text)
+    json_str = _try_repair_normalize_json(json_str)
+    hazards = []
+    try:
+        parsed = json.loads(json_str)
+        for h in parsed.get("hazards", []) or []:
+            if isinstance(h, dict) and "type" in h:
+                canonical = _map_raw_to_canonical(str(h["type"]))
+                if canonical and canonical in HAZARD_TYPES:
+                    hout = {"type": canonical, "severity": str(h.get("severity", "medium")), "zone": "unknown"}
+                    hazards.append(hout)
+        return {"hazards": hazards, "visibility_status": "unknown"}
+    except json.JSONDecodeError:
+        pass
+    for m in re.finditer(r'"type"\s*:\s*"([^"]+)"\s*,\s*"severity"\s*:\s*"([^"]+)"', json_str, re.IGNORECASE):
+        raw_type, severity = m.group(1), m.group(2)
+        canonical = _map_raw_to_canonical(raw_type)
+        if canonical:
+            hazards.append({"type": canonical, "severity": severity, "zone": "unknown"})
+    return {"hazards": hazards, "visibility_status": "unknown"}
+
+
 def _load_model():
     global _model, _processor
     if _model is None:
@@ -256,21 +342,41 @@ def query_cosmos_normalize(raw_extraction: str) -> dict:
 
     allowed_types = ", ".join(HAZARD_TYPES.keys())
 
-    prompt = f"""You are a hazard taxonomy normalizer. The following is raw output from a hazard extraction model that analyzed an image or video. Extract all hazards mentioned and map each to a canonical type.
+    prompt = f"""You are a hazard taxonomy normalizer. The following is raw output from a hazard extraction model that analyzed an image or video. Extract all hazards mentioned and map each to a canonical type. Assign a zone to each hazard.
 
 Raw Layer 1 output:
 {raw_extraction}
 
 Allowed canonical types: {allowed_types}
 
-Examples: incomplete stairs, collapsed staircase, missing steps, hole, excavation → hole; debris pile, construction debris → unstable_debris_stack; exposed wiring, electrical hazard → electrical_exposure; blocked path, restricted exit → restricted_escape_route; partial floor collapse, floor collapse → partial_floor_collapse; danger sign → map based on what it warns about.
+Zone: one of ground | mid | overhead | unknown
+- ground = on floor or affecting foot support
+- mid = body-level obstacle in traversal space
+- overhead = above head or in airspace
+- unknown = cannot determine
+
+Required mappings (do NOT echo raw names; always map to canonical):
+- hanging cable, hanging wires, suspended cables → entanglement_risk
+- barbed wire, razor wire → entanglement_risk
+- low ceiling, overhang, low ceiling obstruction → narrow_passage (clearance)
+- hanging debris, collapsing ceiling → overhead_instability (instability)
+- blocked doorway, blocked path → restricted_escape_route
+- fire, flames → heat_source_proximity
+- collapsed staircase, collapsed floor, collapsed wooden beams → partial_floor_collapse
+- collapsed furniture, collapsed couch, collapsed sofa, debris → unstable_debris_stack
+- hole, excavation → hole
+- exposed wiring, electrical hazard → electrical_exposure
+- incomplete stairs, missing steps → hole
+
+For restricted_escape_route always use severity "contextual".
 
 Return ONLY valid JSON:
-{{"hazards":[{{"type":"<canonical>","severity":"<low|medium|high|critical|contextual>"}}],"visibility_status":"<clear|occluded|unknown>"}}
+{{"hazards":[{{"type":"<canonical>","severity":"<low|medium|high|critical|contextual>","zone":"<ground|mid|overhead|unknown>"}}],"visibility_status":"<clear|occluded|unknown>"}}
 
 Rules:
-- Extract every hazard from the raw output. Map each to exactly one canonical type.
-- Preserve the original severity (low, medium, high, critical, contextual).
+- Do NOT echo raw hazard names. Always map each hazard to exactly one canonical type from the allowed list.
+- Preserve the original severity (low, medium, high, critical, contextual) except restricted_escape_route which must be "contextual".
+- Assign zone for each hazard. Use "unknown" if uncertain.
 - Never invent hazards. Only map the ones given.
 - Extract visibility_status from the raw output if present; otherwise use "unknown".
 - Output compact JSON only. No commentary."""
@@ -326,14 +432,23 @@ Rules:
     if parsed is None:
         global _normalization_parse_failures
         _normalization_parse_failures += 1
-        return {"hazards": [], "visibility_status": "unknown"}
+        if cfg.timing:
+            print("[Layer 2] Parse failed, using fallback extract from raw Layer 1")
+        return _fallback_extract_from_raw(raw_extraction)
 
     raw_hazards = parsed.get("hazards", [])
-    filtered = [
-        {"type": h["type"], "severity": h.get("severity", "medium")}
-        for h in raw_hazards
-        if isinstance(h, dict) and h.get("type") in HAZARD_TYPES
-    ]
+    filtered = []
+    for h in raw_hazards:
+        if not isinstance(h, dict) or h.get("type") not in HAZARD_TYPES:
+            continue
+        htype = h["type"]
+        severity = h.get("severity", "medium")
+        if htype == "restricted_escape_route":
+            severity = "contextual"
+        zone = h.get("zone", "unknown")
+        if zone not in ("ground", "mid", "overhead", "unknown"):
+            zone = "unknown"
+        filtered.append({"type": htype, "severity": severity, "zone": zone})
     if cfg.timing:
         print("Layer 2 hazards (before filter):", raw_hazards)
         dropped = [h.get("type") for h in raw_hazards if isinstance(h, dict) and h.get("type") not in HAZARD_TYPES]
@@ -352,27 +467,60 @@ Rules:
 def query_cosmos_explanation(context: dict) -> str:
     model, processor = _load_model()
 
+    raw_extraction = context.get("raw_extraction") or "N/A"
+    hazards = context.get("hazards", [])
+    rec = context.get("recommendation", {})
+    rec_text = rec.get("recommendation", "") if isinstance(rec, dict) else str(rec)
+    safety = context.get("safety", {})
+
+    hazards_line = ", ".join(
+        f"({h.get('type', '?')}, {h.get('severity', 'medium')}, {h.get('zone', 'unknown')})"
+        for h in hazards
+    )
+    hazards_data = f"Hazards(type,severity,zone): [{hazards_line}]" if hazards else "Hazards(type,severity,zone): []"
+    drone_safety = safety.get("drone_path_safety", {})
+    human_safety = safety.get("human_follow_safety", {})
+    drone_violated = drone_safety.get("violated_constraints", [])
+    human_violated = human_safety.get("violated_constraints", [])
+    violations = safety.get("violations", [])
+
     prompt = f"""Explain the deterministic safety decision below.
 
-Input:
-Hazards: {context.get("hazards", [])}
-Drone safety: {context.get("safety", {}).get("drone_path_safety")}
-Human safety: {context.get("safety", {}).get("human_follow_safety")}
-Recommendation: {context.get("recommendation", {}).get("recommendation")}
+Perception summary (what was detected in the scene):
+{raw_extraction}
+
+{hazards_data}
+Canonical hazards (for safety logic): {hazards}
+
+Drone safety: {drone_safety}
+Drone violated constraints: {drone_violated}
+
+Human safety: {human_safety}
+Human violated constraints: {human_violated}
+"""
+    if violations:
+        prompt += f"""Per-hazard violations: {violations}
+
+"""
+    prompt += f"""Recommendation: {rec_text}
 Fallback available: {context.get("fallback_available", False)}
 
 Agent constraints:
 Drone:
 - Can fly over gaps
 - Does not require stable ground
+- Requires clear airspace (mid, overhead)
 - Sensitive to electricity, heat, entanglement
+- Exposed to falling debris
 
 Human:
 - Requires stable ground
+- Requires body clearance (narrow passages, low ceiling)
 - Cannot fly over gaps
 - Sensitive to instability, collapse, confined air
+- Exposed to falling debris
 
-Return EXACTLY this structure:
+Respond in this exact structure. Each section must start with the header and a newline:
 
 Hazards:
 <text>
@@ -387,10 +535,13 @@ Reasoning:
 <text>
 
 Rules:
-- Use physically grounded language. Refer to actual constraints (e.g., drone can fly over gaps; human requires stable ground).
+- Use physically grounded language. Refer to specific hazards from the perception summary.
+- Reference zone and violated constraints in your explanation to show embodied reasoning.
+- Explicitly mention agent constraints (e.g., drone can fly over gaps; human requires stable ground).
 - Distinguish traversal affordances: what the drone can traverse vs what a human can traverse.
+- Include the final recommendation in your Reasoning section.
 - Do NOT change the recommendation.
-- Do not invent hazards not present in the input list. Only reference hazards explicitly provided.
+- Do not invent hazards not present in the input. Only reference hazards explicitly provided.
 - Follow the structured format exactly.
 - If fallback_available is True, explain that a previously observed safe state may be preferable.
 - Do NOT specify spatial directions, distances, or path planning."""

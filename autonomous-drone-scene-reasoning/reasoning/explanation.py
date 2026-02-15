@@ -10,12 +10,13 @@ def generate_explanation(
     safety: dict,
     recommendation: dict,
     fallback_available: bool = False,
+    raw_extraction: str | None = None,
 ) -> str:
-    #Build context and call Cosmos for strategic explanation.
     context = {
         "hazards": hazards,
         "safety": safety,
         "recommendation": recommendation,
         "fallback_available": fallback_available,
+        "raw_extraction": raw_extraction,
     }
     return query_cosmos_explanation(context)

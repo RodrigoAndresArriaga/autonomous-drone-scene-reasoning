@@ -1,29 +1,48 @@
-#Affordance layer: maps structured hazards to drone vs human risk via capability constraints. Independent of vision. No geometry, no ML, deterministic only.
+# Affordance layer: maps structured hazards to drone vs human risk via capability constraints.
+# Independent of vision. No geometry, no ML, deterministic only.
 
 # Capability Profiles
 
-DRONE_CAPABILITIES = {
-    "can_fly_over_gaps": True,
-    "requires_stable_ground": False,
-    "sensitive_to_electricity": True,
-    "sensitive_to_heat": True,
-    "sensitive_to_entanglement": True,
-    "requires_oxygen": False,
-}
-
 HUMAN_CAPABILITIES = {
-    "can_fly_over_gaps": False,
     "requires_stable_ground": True,
+    "requires_body_clearance": True,
+    "exposed_to_falling_debris": True,
     "sensitive_to_electricity": True,
     "sensitive_to_heat": True,
     "sensitive_to_entanglement": True,
     "requires_oxygen": True,
 }
 
+DRONE_CAPABILITIES = {
+    "can_fly_over_gaps": True,
+    "requires_stable_ground": False,
+    "requires_clear_airspace": True,
+    "exposed_to_falling_debris": True,
+    "sensitive_to_electricity": True,
+    "sensitive_to_heat": True,
+    "sensitive_to_entanglement": True,
+    "requires_oxygen": False,
+}
+
 # Hazard Impact Rules
 
-GAP_HAZARDS = ("hole", "low_visibility_dropoff")
-GROUND_INSTABILITY_HAZARDS = ("unstable_ground", "partial_floor_collapse", "unstable_debris_stack")
+HAZARD_CONSTRAINT_MAP = {
+    "hole": ["requires_stable_ground"],
+    "low_visibility_dropoff": ["requires_stable_ground"],
+    "unstable_ground": ["requires_stable_ground"],
+    "partial_floor_collapse": ["requires_stable_ground"],
+    "unstable_debris_stack": ["requires_stable_ground"],
+    "slippery_surface": ["requires_stable_ground"],
+    "water_depth_uncertain": ["requires_stable_ground"],
+    "electrical_exposure": ["sensitive_to_electricity"],
+    "heat_source_proximity": ["sensitive_to_heat"],
+    "entanglement_risk": ["sensitive_to_entanglement"],
+    "confined_air_pocket": ["requires_oxygen"],
+    "sharp_protrusion": ["requires_stable_ground", "requires_clear_airspace"],
+    "overhead_instability": ["requires_clear_airspace", "exposed_to_falling_debris"],
+    "narrow_passage": ["requires_clear_airspace", "requires_body_clearance"],
+    "restricted_escape_route": ["limits_escape_options"],
+}
 
 SEVERITY_WEIGHTS = {
     "low": 1,
@@ -50,40 +69,47 @@ def _get_severity_weight(hazard: dict, htype: str) -> int:
 
 
 # Evaluate a single hazard against an agent's capabilities. Returns (risk_score, violated_constraints).
-def evaluate_hazard_for_agent(hazard: dict, capabilities: dict) -> tuple[int, list[str]]:
+def evaluate_hazard_for_agent(hazard: dict, capabilities: dict, agent: str) -> tuple[int, list[str]]:
     htype = hazard.get("type", "")
+    zone = hazard.get("zone", "unknown")
+    weight = _get_severity_weight(hazard, htype)
     risk = 0
     violated: list[str] = []
 
-    # GAP hazards: agent cannot fly over
-    if htype in GAP_HAZARDS and not capabilities.get("can_fly_over_gaps", False):
-        risk += _get_severity_weight(hazard, htype)
-        violated.append(f"{htype}: cannot fly over gaps")
-
-    # Ground instability: agent requires stable ground
-    if htype in GROUND_INSTABILITY_HAZARDS and capabilities.get("requires_stable_ground", False):
-        risk += _get_severity_weight(hazard, htype)
-        violated.append(f"{htype}: requires stable ground")
-
-    # Electrical exposure: agent is sensitive to electricity
-    if htype == "electrical_exposure" and capabilities.get("sensitive_to_electricity", False):
-        risk += _get_severity_weight(hazard, htype)
-        violated.append("electrical_exposure: sensitive to electricity")
-
-    # Heat source proximity: agent is sensitive to heat
-    if htype == "heat_source_proximity" and capabilities.get("sensitive_to_heat", False):
-        risk += _get_severity_weight(hazard, htype)
-        violated.append("heat_source_proximity: sensitive to heat")
-
-    # Entanglement risk: agent is sensitive to entanglement
-    if htype == "entanglement_risk" and capabilities.get("sensitive_to_entanglement", False):
-        risk += _get_severity_weight(hazard, htype)
-        violated.append("entanglement_risk: sensitive to entanglement")
-
-    # Confined air pocket: agent requires oxygen
-    if htype == "confined_air_pocket" and capabilities.get("requires_oxygen", False):
-        risk += _get_severity_weight(hazard, htype)
-        violated.append("confined_air_pocket: requires oxygen")
+    for constraint in HAZARD_CONSTRAINT_MAP.get(htype, []):
+        if constraint == "requires_stable_ground":
+            if capabilities.get("requires_stable_ground") and zone in ("ground", "unknown"):
+                risk += weight
+                violated.append(f"{htype}: requires_stable_ground (zone={zone})")
+        elif constraint == "requires_clear_airspace":
+            if capabilities.get("requires_clear_airspace") and zone in ("mid", "overhead", "unknown"):
+                risk += weight
+                violated.append(f"{htype}: requires_clear_airspace (zone={zone})")
+        elif constraint == "sensitive_to_entanglement":
+            if capabilities.get("sensitive_to_entanglement"):
+                if agent == "human":
+                    if zone in ("ground", "mid", "overhead", "unknown"):
+                        risk += weight
+                        violated.append(f"{htype}: sensitive_to_entanglement (zone={zone})")
+                elif agent == "drone":
+                    if zone in ("mid", "overhead", "unknown"):
+                        risk += weight
+                        violated.append(f"{htype}: sensitive_to_entanglement (zone={zone})")
+        elif constraint == "limits_escape_options":
+            if agent == "human":
+                risk += SEVERITY_WEIGHTS["contextual"]
+                violated.append(f"{htype}: limits_escape_options")
+        elif constraint == "requires_body_clearance":
+            if capabilities.get("requires_body_clearance") and zone in ("mid", "overhead", "unknown"):
+                risk += weight
+                violated.append(f"{htype}: requires_body_clearance (zone={zone})")
+        elif constraint == "exposed_to_falling_debris":
+            if capabilities.get("exposed_to_falling_debris") and zone in ("overhead", "unknown"):
+                risk += weight
+                violated.append(f"{htype}: exposed_to_falling_debris (zone={zone})")
+        elif capabilities.get(constraint, False):
+            risk += weight
+            violated.append(f"{htype}: {constraint}")
 
     return risk, violated
 
@@ -101,28 +127,42 @@ def _risk_to_classification(score: int) -> str:
 def classify_shared_safety(
     hazards: list[dict],
     drone_capabilities: dict,
-    human_capabilities: dict) -> dict:
-    # Classify shared path safety for drone and human based on hazards and capabilities.
+    human_capabilities: dict,
+) -> dict:
+    """Classify shared path safety for drone and human based on hazards and capabilities."""
     drone_risk = 0
     human_risk = 0
+    drone_violated: list[str] = []
+    human_violated: list[str] = []
+    violations: list[dict] = []
 
-    # Evaluate hazards for drone and human
     for h in hazards:
-        dr, _ = evaluate_hazard_for_agent(h, drone_capabilities)
-        hr, _ = evaluate_hazard_for_agent(h, human_capabilities)
+        dr, dv = evaluate_hazard_for_agent(h, drone_capabilities, "drone")
+        hr, hv = evaluate_hazard_for_agent(h, human_capabilities, "human")
         drone_risk += dr
         human_risk += hr
+        drone_violated.extend(dv)
+        human_violated.extend(hv)
+        combined = list(dict.fromkeys(dv + hv))
+        if combined:
+            violations.append({
+                "type": h.get("type", ""),
+                "zone": h.get("zone", "unknown"),
+                "violated": combined,
+            })
 
-    # Return the safety classifications for drone and human
     return {
         "drone_path_safety": {
             "total_risk_score": drone_risk,
             "classification": _risk_to_classification(drone_risk),
+            "violated_constraints": drone_violated,
         },
         "human_follow_safety": {
             "total_risk_score": human_risk,
             "classification": _risk_to_classification(human_risk),
+            "violated_constraints": human_violated,
         },
+        "violations": violations,
     }
 
 
@@ -130,9 +170,9 @@ def classify_shared_safety(
 
 if __name__ == "__main__":
     hazards = [
-        {"type": "hole", "severity": "high"},
-        {"type": "electrical_exposure", "severity": "critical"},
-        {"type": "unstable_ground", "severity": "medium"},
+        {"type": "hole", "severity": "high", "zone": "ground"},
+        {"type": "electrical_exposure", "severity": "critical", "zone": "mid"},
+        {"type": "unstable_ground", "severity": "medium", "zone": "ground"},
     ]
     result = classify_shared_safety(hazards, DRONE_CAPABILITIES, HUMAN_CAPABILITIES)
     print(result)
