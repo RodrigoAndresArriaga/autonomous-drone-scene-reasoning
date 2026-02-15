@@ -542,6 +542,7 @@ Hazards (type, severity, zone): {hazards_narrative}
 Drone safety: {drone_narrative}
 Human safety: {human_narrative}
 Recommendation: {rec_text}
+Deterministic recommendation (do not change): {rec_text}
 Fallback available: {context.get("fallback_available", False)}
 
 Agent constraints:
@@ -563,26 +564,33 @@ You MUST write natural language prose in each section. Do NOT copy, echo, or pas
 
 Respond in this exact structure. Each section must start with the header and a newline:
 
+Scene Context:
+<brief reference to observed scene_summary>
+
 Hazards:
-<text>
+<what is physically present>
 
 Drone Safety:
-<text>
+<what constraints are violated and why>
 
 Human Safety:
-<text>
+<what constraints are violated and why>
 
-Reasoning:
-<text>
+Decision:
+<state the final deterministic recommendation exactly as given>
+
+Justification:
+<explain why the decision logically follows from constraints, zones, and agent capabilities>
 
 Rules:
-- Each section (Hazards, Drone Safety, Human Safety, Reasoning) must contain explanatory prose. Do NOT output raw dicts or JSON.
+- Each section (Scene Context, Hazards, Drone Safety, Human Safety, Decision, Justification) must contain explanatory prose. Do NOT output raw dicts or JSON.
 - Use physically grounded language. Refer to specific hazards from the perception summary.
 - Reference zone and violated constraints in your explanation to show embodied reasoning.
 - Explicitly mention agent constraints (e.g., drone can fly over gaps; human requires stable ground).
 - Distinguish traversal affordances: what the drone can traverse vs what a human can traverse.
-- The Reasoning section MUST include: (1) scene context describing what was observed; (2) next move (hold position, continue, or reroute); (3) rationale for why this recommendation was chosen.
-- Do NOT change the recommendation.
+- The Decision section must restate the exact recommendation provided. The Decision section must exactly match the text from "Deterministic recommendation (do not change)" above.
+- The Justification must explicitly connect violated constraints to that decision.
+- Do not reinterpret or change the recommendation.
 - Do not invent hazards not present in the input. Only reference hazards explicitly provided.
 - Follow the structured format exactly.
 - If fallback_available is True, explain that a previously observed safe state may be preferable.
