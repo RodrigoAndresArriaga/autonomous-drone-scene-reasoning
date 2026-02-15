@@ -38,7 +38,7 @@ from safety.affordance_model import (
     SEVERITY_WEIGHTS,
     classify_shared_safety,
 )
-from safety.recommendation import generate_navigation_recommendation
+from safety.recommendation import RECOMMENDATIONS, generate_navigation_recommendation
 from utils.video_clip import extract_clip_ctx, get_video_duration
 
 _last_state_signature = None
@@ -156,6 +156,10 @@ def evaluate_scene(
     drone_class = safety["drone_path_safety"]["classification"]
     human_class = safety["human_follow_safety"]["classification"]
 
+    if os.environ.get("COSMOS_TIMING") == "1":
+        print("[OUR computation] Step 3: Deterministic safety classification (affordance model):")
+        print(f"  drone_path_safety={drone_class}, human_follow_safety={human_class}")
+
     max_memory = get_config().agent.memory.max_memory
     global _safe_state_memory
     if drone_class == "safe" and human_class == "safe":
@@ -181,6 +185,13 @@ def evaluate_scene(
     )
     if fallback_available and rec["recommendation"] == "Proceed but do not guide":
         rec["recommendation"] = "Reroute (previously observed safe state available)"
+        if os.environ.get("COSMOS_TIMING") == "1":
+            print("[OUR computation] Fallback override applied: Reroute (previously observed safe state available)")
+
+    if os.environ.get("COSMOS_TIMING") == "1":
+        print(f"[OUR computation] Available (RECOMMENDATIONS): {' | '.join(RECOMMENDATIONS.values())}")
+        print(f"[OUR computation] Step 4: OUR deterministic recommendation: \"{rec['recommendation']}\"")
+        print("  (from safety.recommendation.generate_navigation_recommendation - LLM does NOT decide this)")
 
     # 5) Cosmos explanation: only when decision state changes
     hazard_tuples = [
@@ -199,6 +210,8 @@ def evaluate_scene(
 
     if explain:
         if state_signature != _last_state_signature:
+            if os.environ.get("COSMOS_TIMING") == "1":
+                print("[OUR computation] Step 5: Passing OUR recommendation to LLM for explanation only. LLM explains our decision; it does not compute it.")
             # rec from generate_navigation_recommendation (safety.recommendation), passed to explanation layer
             explanation = generate_explanation(
                 validated_hazards, safety, rec, fallback_available, raw_extraction=raw_text, scene_summary=scene_summary

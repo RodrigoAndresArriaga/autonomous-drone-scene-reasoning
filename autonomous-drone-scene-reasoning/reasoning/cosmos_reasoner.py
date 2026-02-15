@@ -541,6 +541,9 @@ def query_cosmos_explanation(context: dict) -> str:
     _allowed = set(RECOMMENDATIONS.values()) | {_FALLBACK_RECOMMENDATION}
     if rec_text and rec_text not in _allowed:
         logging.warning("Layer 3: rec_text %r not in canonical RECOMMENDATIONS", rec_text)
+    if os.environ.get("COSMOS_TIMING") == "1":
+        print(f"[Layer 3] Received OUR computed recommendation: \"{rec_text}\"")
+        print("[Layer 3] LLM will EXPLAIN this decision only. OUR computation drives the Decision section; LLM does not decide.")
     safety = context.get("safety", {})
 
     hazards_narrative = ", ".join(
