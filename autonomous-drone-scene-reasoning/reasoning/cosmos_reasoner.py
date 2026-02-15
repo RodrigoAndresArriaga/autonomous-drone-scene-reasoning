@@ -340,14 +340,27 @@ def query_cosmos_normalize(raw_extraction: str) -> dict:
     """Interpret raw Layer 1 output and map hazards to canonical types. Text-only, no image."""
     model, processor = _load_model()
 
-    allowed_types = ", ".join(HAZARD_TYPES.keys())
+    hazard_ontology = "\n".join(
+        f"- {k}: default severity={v.get('severity', 'medium')}"
+        for k, v in HAZARD_TYPES.items()
+    )
 
-    prompt = f"""You are a hazard taxonomy normalizer. The following is raw output from a hazard extraction model that analyzed an image or video. Extract all hazards mentioned and map each to a canonical type. Assign a zone to each hazard.
+    prompt = f"""You are a hazard taxonomy normalizer.
+
+The following is raw output from a hazard extraction model that analyzed an image or video.
+Extract all hazards mentioned and map each to the closest canonical hazard type.
 
 Raw Layer 1 output:
 {raw_extraction}
 
-Allowed canonical types: {allowed_types}
+Canonical hazard taxonomy (from HAZARD_TYPES):
+{hazard_ontology}
+
+For each hazard:
+- Select the single most appropriate canonical type from the allowed list.
+- The "type" field MUST exactly match one of the canonical type keys above.
+- Do NOT echo raw names.
+- If the raw description is more specific than the canonical type, map it to the closest broader canonical category.
 
 Zone: one of ground | mid | overhead | unknown
 - ground = on floor or affecting foot support
@@ -355,31 +368,21 @@ Zone: one of ground | mid | overhead | unknown
 - overhead = above head or in airspace
 - unknown = cannot determine
 
-Required mappings (do NOT echo raw names; always map to canonical):
-- hanging cable, hanging wires, suspended cables → entanglement_risk
-- barbed wire, razor wire → entanglement_risk
-- low ceiling, overhang, low ceiling obstruction → narrow_passage (clearance)
-- hanging debris, collapsing ceiling → overhead_instability (instability)
-- blocked doorway, blocked path → restricted_escape_route
-- fire, flames → heat_source_proximity
-- collapsed staircase, collapsed floor, collapsed wooden beams → partial_floor_collapse
-- collapsed furniture, collapsed couch, collapsed sofa, debris → unstable_debris_stack
-- hole, excavation → hole
-- exposed wiring, electrical hazard → electrical_exposure
-- incomplete stairs, missing steps → hole
-
-For restricted_escape_route always use severity "contextual".
-
-Return ONLY valid JSON:
-{{"hazards":[{{"type":"<canonical>","severity":"<low|medium|high|critical|contextual>","zone":"<ground|mid|overhead|unknown>"}}],"visibility_status":"<clear|occluded|unknown>"}}
+Severity:
+- Preserve the original severity if provided.
+- If no severity is present, use the canonical default severity.
+- For restricted_escape_route, always use severity "contextual".
 
 Rules:
-- Do NOT echo raw hazard names. Always map each hazard to exactly one canonical type from the allowed list.
-- Preserve the original severity (low, medium, high, critical, contextual) except restricted_escape_route which must be "contextual".
-- Assign zone for each hazard. Use "unknown" if uncertain.
-- Never invent hazards. Only map the ones given.
-- Extract visibility_status from the raw output if present; otherwise use "unknown".
-- Output compact JSON only. No commentary."""
+- Never invent hazards.
+- Never output a type not in the canonical taxonomy above.
+- If a hazard does not clearly match any canonical type, do not output it. (Conservative omission — code fallback will catch common cases; avoid creative taxonomy stretching.)
+- Assign a zone for every hazard.
+- Use "unknown" zone if uncertain.
+- Extract visibility_status if present in the raw output; otherwise use "unknown".
+
+Return ONLY valid compact JSON:
+{{"hazards":[{{"type":"<canonical>","severity":"<low|medium|high|critical|contextual>","zone":"<ground|mid|overhead|unknown>"}}],"visibility_status":"<clear|occluded|unknown>"}}"""
 
     messages = [
         SYS_NORMALIZE,
@@ -439,9 +442,16 @@ Rules:
     raw_hazards = parsed.get("hazards", [])
     filtered = []
     for h in raw_hazards:
-        if not isinstance(h, dict) or h.get("type") not in HAZARD_TYPES:
+        if not isinstance(h, dict):
             continue
-        htype = h["type"]
+        htype = h.get("type")
+        if htype not in HAZARD_TYPES:
+            mapped = _map_raw_to_canonical(str(htype))
+            if mapped and mapped in HAZARD_TYPES:
+                htype = mapped
+            else:
+                continue
+        h["type"] = htype  # ensure consistency downstream (zone/severity stay aligned with canonical type)
         severity = h.get("severity", "medium")
         if htype == "restricted_escape_route":
             severity = "contextual"
