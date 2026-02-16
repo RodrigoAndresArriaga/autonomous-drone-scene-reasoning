@@ -1,11 +1,9 @@
-#Canonical hazard taxonomy for structured hazard parsing.
-
-#Used by the Structured Hazard Parsing step to convert free-form model output into hazard objects that feed the output contract (hazards array).
-
+# Canonical hazard taxonomy for structured hazard parsing.
+# Used by Layer 2 to convert free-form model output into canonical hazard objects.
 
 from typing import TypedDict
 
-# Canonical hazard types: severity = default severity (constraint mapping in affordance_model)
+# Canonical hazard types with default severity (constraint mapping in affordance_model)
 HAZARD_TYPES = {
     "hole": {"severity": "high"},
     "unstable_ground": {"severity": "medium"},
@@ -29,14 +27,14 @@ HAZARD_TYPES = {
 }
 
 
+# Hazard instance aligned with output contract hazards array
 class HazardInstance(TypedDict, total=False):
-    # Hazard instance aligned with output contract hazards array.
     type: str
     location: str | None
     severity: str
     zone: str  # ground | mid | overhead | unknown
 
 
+# Lookup hazard type info by canonical key
 def get_hazard_info(type_key: str) -> dict | None:
-    #Lookup hazard type info by canonical key.
     return HAZARD_TYPES.get(type_key)

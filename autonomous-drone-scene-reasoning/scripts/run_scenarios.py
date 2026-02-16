@@ -52,6 +52,7 @@ def run_rolling_mode(
     duration = get_video_duration(str(video_path))
     rows = []
     t = 0.0
+    # Step through video with overlapping or consecutive windows
     while t + clip_sec <= duration:
         t_end = t + clip_sec
         with extract_clip_ctx(str(video_path), t, clip_sec, reencode_fps=fps) as clip_path:
@@ -98,6 +99,7 @@ def main():
     step_sec = args.step_seconds if args.step_seconds is not None else cfg.step_seconds
     fps = cfg.fps_default
 
+    # Ensure output directory exists before writing results
     out_path = args.output or (_project_root / "outputs" / "scenario_rollup.jsonl")
     out_path.parent.mkdir(parents=True, exist_ok=True)
 

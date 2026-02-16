@@ -21,10 +21,11 @@ from .hazard_schema import HAZARD_TYPES
 
 _FALLBACK_RECOMMENDATION = "Reroute (previously observed safe state available)"
 
+# Singleton pattern: load model once and reuse across calls
 _model = None
 _processor = None
 
-# Evaluation counters (log for judge credibility)
+# Track parse failures for diagnostic reporting
 _json_parse_failures = 0
 _normalization_parse_failures = 0
 
@@ -86,10 +87,12 @@ SYS_EXPLAIN = {
 def _preprocess_json(text: str) -> str:
     """Strip markdown fences and extract JSON object."""
     text = text.strip()
+    # Remove markdown code fences if present
     if "```" in text:
         # Remove ```json ... ``` or ``` ... ```
         text = re.sub(r"^```(?:json)?\s*\n?", "", text)
         text = re.sub(r"\n?```\s*$", "", text)
+    # Extract JSON object by finding outermost braces
     start = text.find("{")
     end = text.rfind("}") + 1
     if start >= 0 and end > start:
@@ -109,7 +112,7 @@ def _try_repair_normalize_json(json_str: str) -> str:
     return json_str
 
 
-# Raw type (from Layer 1) -> canonical type for fallback when Layer 2 parse fails
+# Fallback mapping: raw Layer 1 hazard names to canonical types
 _RAW_TO_CANONICAL = {
     "fire": "heat_source_proximity",
     "flames": "heat_source_proximity",
@@ -147,9 +150,11 @@ _RAW_TO_CANONICAL = {
 def _map_raw_to_canonical(raw_type: str) -> str | None:
     """Map raw hazard type to canonical HAZARD_TYPES key, or None if no mapping."""
     t = raw_type.strip().lower()
+    # Direct lookup for known raw types
     if t in _RAW_TO_CANONICAL:
         canonical = _RAW_TO_CANONICAL[t]
         return canonical if canonical in HAZARD_TYPES else None
+    # Fuzzy pattern matching for variants not in the explicit mapping
     if "collapsed" in t and ("stair" in t or "floor" in t or "beam" in t):
         return "partial_floor_collapse"
     if "collapsed" in t or "debris" in t:
@@ -192,6 +197,7 @@ def _fallback_extract_from_raw(raw_text: str) -> dict:
     json_str = _preprocess_json(raw_text)
     json_str = _try_repair_normalize_json(json_str)
     hazards = []
+    # Try structured JSON parse first
     try:
         parsed = json.loads(json_str)
         for h in parsed.get("hazards", []) or []:
@@ -203,6 +209,7 @@ def _fallback_extract_from_raw(raw_text: str) -> dict:
         return {"hazards": hazards, "visibility_status": "unknown", "scene_summary": parsed.get("scene_summary", "")}
     except json.JSONDecodeError:
         pass
+    # Last resort: regex extraction of type/severity pairs
     for m in re.finditer(r'"type"\s*:\s*"([^"]+)"\s*,\s*"severity"\s*:\s*"([^"]+)"', json_str, re.IGNORECASE):
         raw_type, severity = m.group(1), m.group(2)
         canonical = _map_raw_to_canonical(raw_type)
@@ -219,6 +226,7 @@ def _load_model():
         offline = cfg.offline
         load_kw = {"local_files_only": offline} if offline else {}
         _processor = AutoProcessor.from_pretrained(model_name, **load_kw)
+        # Try attention implementations in preference order (flash_attention_2, sdpa)
         for attn_impl in cfg.attention_preference:
             try:
                 _model = Qwen3VLForConditionalGeneration.from_pretrained(
@@ -233,6 +241,7 @@ def _load_model():
                 continue
         if _model is None:
             raise RuntimeError(f"Failed to load model with any of {cfg.attention_preference}")
+        # Warn if model loaded on CPU despite CUDA availability
         if torch.cuda.is_available():
             dev = next(_model.parameters()).device
             if "cpu" in str(dev):
@@ -436,7 +445,7 @@ Return ONLY valid compact JSON:
     )[0]
 
     json_str = _preprocess_json(decoded)
-    # Apply repair before first parse (Layer 2 often echoes malformed JSON from Layer 1)
+    # Repair common JSON issues before parsing (Layer 2 often inherits Layer 1 malformations)
     json_str = _try_repair_normalize_json(json_str)
     if cfg.timing:
         print("Layer 2 JSON (after repair):", repr(json_str[:800] + "..." if len(json_str) > 800 else json_str))
@@ -449,6 +458,7 @@ Return ONLY valid compact JSON:
         if cfg.timing:
             print("Layer 2 JSON parse failed:", first_error)
             print("Layer 2 decoded (raw):", repr(decoded[:500] + "..." if len(decoded) > 500 else decoded))
+    # Fallback to Layer 1 extraction when Layer 2 parse fails
     if parsed is None:
         global _normalization_parse_failures
         _normalization_parse_failures += 1
@@ -456,6 +466,7 @@ Return ONLY valid compact JSON:
             print("[Layer 2] Parse failed, using fallback extract from raw Layer 1")
         return _fallback_extract_from_raw(raw_extraction)
 
+    # Filter hazards to canonical types only, mapping where possible
     raw_hazards = parsed.get("hazards", [])
     filtered = []
     for h in raw_hazards:
@@ -477,7 +488,7 @@ Return ONLY valid compact JSON:
             zone = "unknown"
         filtered.append({"type": htype, "severity": severity, "zone": zone})
 
-    # Collapse by (type, zone), keep highest severity per group (reduces log noise, prompt tokens)
+    # Deduplicate by (type, zone), keeping highest severity per group
     dedup: dict[tuple[str, str], dict] = {}
     for h in filtered:
         key = (h["type"], h.get("zone", "unknown"))
@@ -507,7 +518,7 @@ Return ONLY valid compact JSON:
 
 def _postprocess_explanation(text: str, rec_text: str) -> str:
     """Fix section headers and ensure Decision matches canonical recommendation."""
-    # Remove duplicate Scene Context blocks: "Scene context: X" echoed before "Scene Context:\nY"
+    # Remove duplicate Scene Context blocks if model echoes input
     text = re.sub(
         r"^Scene\s+[Cc]ontext:\s*.+$\n+(?=Scene\s+[Cc]ontext:\s*\n)",
         "",
@@ -515,7 +526,7 @@ def _postprocess_explanation(text: str, rec_text: str) -> str:
         count=1,
         flags=re.MULTILINE,
     )
-    # Normalize section headers (case-insensitive, allow optional extra spaces)
+    # Normalize section headers to canonical format
     headers = [
         ("Scene Context:", r"Scene\s*Context\s*:"),
         ("Hazards:", r"Hazards\s*:"),
@@ -527,7 +538,7 @@ def _postprocess_explanation(text: str, rec_text: str) -> str:
     for canonical, pattern in headers:
         text = re.sub(pattern, canonical, text, flags=re.IGNORECASE)
 
-    # Replace Decision section content with exact rec_text
+    # Force Decision section to match deterministic recommendation exactly
     match = re.search(r"(Decision:\s*\n)([^\n]+)", text)
     if match and match.group(2).strip() != rec_text:
         text = text[: match.start(2)] + rec_text + text[match.end(2) :]

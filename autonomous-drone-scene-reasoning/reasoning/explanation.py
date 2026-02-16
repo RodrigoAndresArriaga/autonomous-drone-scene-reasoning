@@ -1,7 +1,6 @@
 # Strategic explanation layer (Layer 3).
 # Cosmos receives hazards, safety, and recommendation and explains the deterministic outcome.
 # Does not compute it.
-#
 # recommendation: dict from safety.recommendation.generate_navigation_recommendation,
 # possibly with fallback override from scene_agent when previously observed safe state exists.
 
@@ -16,6 +15,7 @@ def generate_explanation(
     raw_extraction: str | None = None,
     scene_summary: str | None = None,
 ) -> str:
+    # Assemble context for Layer 3 explanation generation
     context = {
         "hazards": hazards,
         "safety": safety,

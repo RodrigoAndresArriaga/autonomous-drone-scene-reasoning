@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
+# Verify ffmpeg and ffprobe are available before attempting video operations
 def _check_ffmpeg() -> None:
     """Raise clear error if ffmpeg or ffprobe not on PATH."""
     for cmd in ("ffmpeg", "ffprobe"):
@@ -39,6 +40,7 @@ def get_video_duration(path: str) -> float:
     return float(result.stdout.strip())
 
 
+# Fast path: stream copy without re-encoding (best for keyframe-aligned clips)
 def _run_ffmpeg_copy(source: str, start: float, duration: float, out_path: Path) -> bool:
     """Run ffmpeg stream copy. Returns True if success."""
     proc = subprocess.run(
@@ -62,6 +64,7 @@ def _run_ffmpeg_copy(source: str, start: float, duration: float, out_path: Path)
     return proc.returncode == 0 and out_path.exists()
 
 
+# Fallback: re-encode when stream copy fails (non-keyframe starts, format issues)
 def _run_ffmpeg_reencode(
     source: str, start: float, duration: float, out_path: Path, fps: int = 4
 ) -> bool:
@@ -114,10 +117,11 @@ def extract_clip_ctx(
     out_path = tmp_dir / f"clip_{uuid.uuid4().hex[:8]}.mp4"
 
     try:
+        # Try fast stream copy first
         if _run_ffmpeg_copy(str(source), start_sec, duration_sec, out_path):
             yield out_path
             return
-        # Fallback: re-encode (some MP4s + non-keyframe starts can fail with copy)
+        # Fall back to re-encode if copy fails (handles non-keyframe starts)
         fps = reencode_fps if reencode_fps is not None else 4
         if _run_ffmpeg_reencode(str(source), start_sec, duration_sec, out_path, fps):
             yield out_path

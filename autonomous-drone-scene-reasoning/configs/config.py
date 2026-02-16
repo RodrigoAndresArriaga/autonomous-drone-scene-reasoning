@@ -20,6 +20,7 @@ def _load_yaml(path: Path) -> dict:
         return yaml.safe_load(f) or {}
 
 
+# Recursively merge nested config dicts (profile overrides default)
 def _deep_merge(base: dict, override: dict) -> dict:
     """Merge override into base recursively. Modifies base in place."""
     for k, v in override.items():
@@ -48,6 +49,7 @@ def _apply_env_overrides(data: dict) -> None:
     if os.environ.get("COSMOS_NO_RESIZE") == "1":
         data.setdefault("cosmos", {}).setdefault("image", {})["resize"] = False
 
+    # Walrus operator pattern: assign and check env var in one line
     # COSMOS_MAX_NEW_TOKENS_EXTRACT_IMAGE
     if v := os.environ.get("COSMOS_MAX_NEW_TOKENS_EXTRACT_IMAGE"):
         data.setdefault("cosmos", {}).setdefault("image", {})["max_new_tokens"] = int(v)
@@ -200,6 +202,7 @@ def get_config() -> AppConfig:
     default_path = _CONFIG_DIR / "default.yaml"
     data = _load_yaml(default_path)
 
+    # Profile-based config override (e.g., CONFIG_PROFILE=dev loads dev.yaml)
     profile = os.environ.get("CONFIG_PROFILE")
     if profile:
         profile_path = _CONFIG_DIR / f"{profile}.yaml"

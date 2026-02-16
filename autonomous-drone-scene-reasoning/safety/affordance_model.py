@@ -52,6 +52,7 @@ SEVERITY_WEIGHTS = {
     "critical": 4,
     "contextual": 2,
 }
+# Catastrophic hazard types that should never be treated as low severity
 MINIMUM_SEVERITY_FLOOR_TYPES = (
     "hole",
     "low_visibility_dropoff",
@@ -60,10 +61,11 @@ MINIMUM_SEVERITY_FLOOR_TYPES = (
     "partial_floor_collapse",
 )
 
-# Table-based severity to risk weight. Floor applied for catastrophic types.
+# Convert severity to risk weight with floor enforcement for catastrophic types
 def _get_severity_weight(hazard: dict, htype: str) -> int:
     severity = hazard.get("severity", "medium")
     base = SEVERITY_WEIGHTS.get(severity, 2)
+    # Enforce minimum medium severity for catastrophic hazard types
     if htype in MINIMUM_SEVERITY_FLOOR_TYPES:
         base = max(base, SEVERITY_WEIGHTS["medium"])
     return base
@@ -77,15 +79,19 @@ def evaluate_hazard_for_agent(hazard: dict, capabilities: dict, agent: str) -> t
     risk = 0
     violated: list[str] = []
 
+    # Check each constraint the hazard type affects
     for constraint in HAZARD_CONSTRAINT_MAP.get(htype, []):
+        # Ground-level hazards affect agents that need stable footing
         if constraint == "requires_stable_ground":
             if capabilities.get("requires_stable_ground") and zone in ("ground", "unknown"):
                 risk += weight
                 violated.append(f"{htype}: requires_stable_ground (zone={zone})")
+        # Mid/overhead hazards affect agents that need clear airspace
         elif constraint == "requires_clear_airspace":
             if capabilities.get("requires_clear_airspace") and zone in ("mid", "overhead", "unknown"):
                 risk += weight
                 violated.append(f"{htype}: requires_clear_airspace (zone={zone})")
+        # Entanglement risk varies by agent and zone
         elif constraint == "sensitive_to_entanglement":
             if capabilities.get("sensitive_to_entanglement"):
                 if agent == "human":
@@ -96,25 +102,29 @@ def evaluate_hazard_for_agent(hazard: dict, capabilities: dict, agent: str) -> t
                     if zone in ("mid", "overhead", "unknown"):
                         risk += weight
                         violated.append(f"{htype}: sensitive_to_entanglement (zone={zone})")
+        # Escape route constraints affect humans only
         elif constraint == "limits_escape_options":
             if agent == "human":
                 risk += SEVERITY_WEIGHTS["contextual"]
                 violated.append(f"{htype}: limits_escape_options")
+        # Body clearance affects agents with physical dimensions
         elif constraint == "requires_body_clearance":
             if capabilities.get("requires_body_clearance") and zone in ("mid", "overhead", "unknown"):
                 risk += weight
                 violated.append(f"{htype}: requires_body_clearance (zone={zone})")
+        # Falling debris affects agents exposed from above
         elif constraint == "exposed_to_falling_debris":
             if capabilities.get("exposed_to_falling_debris") and zone in ("overhead", "unknown"):
                 risk += weight
                 violated.append(f"{htype}: exposed_to_falling_debris (zone={zone})")
+        # Generic constraint check for other cases
         elif capabilities.get(constraint, False):
             risk += weight
             violated.append(f"{htype}: {constraint}")
 
     return risk, violated
 
-# Map total risk score to safety classification.
+# Map total risk score to three-tier safety classification
 def _risk_to_classification(score: int) -> str:
     if score <= 3:
         return "safe"
@@ -144,6 +154,7 @@ def classify_shared_safety(
         human_risk += hr
         drone_violated.extend(dv)
         human_violated.extend(hv)
+        # Merge drone and human violations for reporting, preserving order
         combined = list(dict.fromkeys(dv + hv))
         if combined:
             violations.append({

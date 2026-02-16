@@ -1,9 +1,9 @@
 # Scene evaluation agent orchestration layer.
-#
+
 # We support frame, clip, and rolling-window inference. Rolling-window emulates live
 # operation by analyzing the most recent N seconds repeatedly. This adds temporal
 # continuity without adding mapping/planning/control.
-#
+
 # Output contract: canonical structure for scene evaluation agent.
 """
 {
@@ -42,12 +42,13 @@ from safety.recommendation import RECOMMENDATIONS, generate_navigation_recommend
 from safety.scouting import VISIBILITY_STATUSES
 from utils.video_clip import extract_clip_ctx, get_video_duration
 
+# Cache state and explanation to avoid redundant LLM calls
 _last_state_signature = None
 _last_explanation = None
 _last_raw_extraction = None
 _safe_state_memory = []
 
-# Evaluation counters (log for judge credibility)
+# Evaluation counters for judge credibility and metrics reporting
 _frames_total = 0
 _frames_with_hazards = 0
 _normalization_triggered_count = 0
@@ -110,7 +111,7 @@ def evaluate_scene(
     else:
         raise ValueError(f"mode must be 'image', 'video', or 'rolling', got {mode!r}")
 
-    # Resolve media path: full file vs extracted clip (end-anchored: last clip_sec)
+    # Extract end-anchored clip: last N seconds for rolling window behavior
     raw = None
     if needs_clip and clip_sec and clip_sec > 0:
         total_duration = get_video_duration(media_path)
@@ -143,7 +144,7 @@ def evaluate_scene(
     visibility_status = visibility_status if visibility_status in VISIBILITY_STATUSES else "unknown"
     scene_summary = norm_result.get("scene_summary", "") or extract_scene_summary_from_layer1(raw_text)
 
-    # Deduplicate by (type, zone), keep highest severity per group
+    # Collapse duplicate hazards by (type, zone), keeping highest severity
     dedup: dict[tuple[str, str], dict] = {}
     for h in normalized:
         t = h.get("type", "")
@@ -160,7 +161,7 @@ def evaluate_scene(
     if validated_hazards:
         _frames_with_hazards += 1
 
-    # 3) Deterministic safety classification: classify the safety of the drone and human based on the hazards.
+    # Apply deterministic affordance-based safety classification
     safety = classify_shared_safety(
         validated_hazards,
         DRONE_CAPABILITIES,
@@ -174,6 +175,7 @@ def evaluate_scene(
         print("[OUR computation] Step 3: Deterministic safety classification (affordance model):")
         print(f"  drone_path_safety={drone_class}, human_follow_safety={human_class}")
 
+    # Track safe states for potential fallback rerouting
     max_memory = get_config().agent.memory.max_memory
     global _safe_state_memory
     if drone_class == "safe" and human_class == "safe":
@@ -187,17 +189,19 @@ def evaluate_scene(
             if len(_safe_state_memory) > max_memory:
                 _safe_state_memory.pop(0)
 
+    # Check if we can reroute to a previously observed safe state
     fallback_available = False
     if drone_class == "safe" and human_class == "unsafe" and len(_safe_state_memory) > 0:
         fallback_available = True
 
     # 4) Deterministic policy recommendation
-    # recommendation.Rule 3: drone=safe, human=unsafe -> "Proceed but do not guide" (RECOMMENDATIONS["PROCEED_DRONE_ONLY"])
+    # recommendation: Rule 3: drone=safe, human=unsafe -> "Proceed but do not guide" (RECOMMENDATIONS["PROCEED_DRONE_ONLY"])
     rec = generate_navigation_recommendation(
         safety["drone_path_safety"]["classification"],
         safety["human_follow_safety"]["classification"],
         visibility_status,
     )
+    # Override with fallback reroute when safe state memory exists
     if fallback_available and rec["recommendation"] == "Proceed but do not guide":
         rec["recommendation"] = "Reroute (previously observed safe state available)"
         if os.environ.get("COSMOS_TIMING") == "1":
@@ -208,7 +212,7 @@ def evaluate_scene(
         print(f"[OUR computation] Step 4: OUR deterministic recommendation: \"{rec['recommendation']}\"")
         print("  (from safety.recommendation.generate_navigation_recommendation - LLM does NOT decide this)")
 
-    # 5) Cosmos explanation: only when decision state changes
+    # Build state signature for explanation caching
     hazard_tuples = [
         (h["type"], h.get("severity", "medium"), h.get("zone", "unknown"))
         for h in validated_hazards
@@ -223,6 +227,7 @@ def evaluate_scene(
     global _last_state_signature, _last_explanation
     explanation = None
 
+    # Generate explanation only when state changes to reduce LLM calls
     if explain:
         if state_signature != _last_state_signature:
             if os.environ.get("COSMOS_TIMING") == "1":
@@ -236,10 +241,10 @@ def evaluate_scene(
         else:
             explanation = _last_explanation
 
-    # 6) Latency: calculate the latency of the pipeline.
+    # Calculate total pipeline latency
     latency_ms = round((time.time() - start) * 1000, 2)
 
-    # Cosmos eval block: only when COSMOS_TIMING=1 (metrics appear in format_results by default)
+    # Log evaluation metrics periodically when timing mode is enabled
     _eval_log_interval = get_config().agent.eval_log_every
     if os.environ.get("COSMOS_TIMING") == "1":
         if _frames_total == 1 or _frames_total % _eval_log_interval == 0:
