@@ -44,9 +44,9 @@ For each input video segment or frame window, the system produces:
 
 3. **Optional exit context (abstract, non-planning)** — Directional context when a safer zone or exit is implied. Not required for path safety classification. Used only to interpret guidance decisions, not to generate them. Does not perform exit discovery, mapping, or route selection. Path safety classification is always computed independently of exit context.
 
-4. **Navigation & guidance recommendation** — Proceed and guide human / Proceed but do not guide human / Reroute before guiding / Hold position. Guidance decisions are made step-by-step. Shared-path safety classification always precedes any consideration of exit or goal direction.
+4. **Navigation & guidance recommendation** — Proceed and guide human / Proceed but do not guide / Reroute before guiding / Hold position / Scout forward before guiding human. Guidance decisions are made step-by-step. Shared-path safety classification always precedes any consideration of exit or goal direction.
 
-5. **Textual reasoning explanation** — Clear, physically grounded explanations (e.g., “While the drone can safely pass over the debris field, the uneven terrain presents a tripping hazard for a human. The recommended action is to reroute before guiding a person through this area.”).
+5. **Textual reasoning explanation** — Clear, physically grounded explanations (e.g., "While the drone can safely pass over the debris field, the uneven terrain presents a tripping hazard for a human. The recommended action is to reroute before guiding a person through this area.").
 
 ---
 
@@ -73,6 +73,14 @@ We support frame, clip, and rolling-window inference. Rolling-window emulates li
 | **image** | Single image | Unit tests, quick taxonomy checks |
 | **video** | Full video file | Offline "analyze this whole clip" |
 | **rolling** | Video + clip_seconds, step_seconds | Real-time-like state updates without a live camera |
+
+**Entry points**
+
+| Entry point | Modes | Purpose |
+|-------------|-------|---------|
+| `scripts/run_scenarios.py` | video, rolling | Main demo: full pipeline on videos |
+| `python -m agent.scene_agent` | image | Debug: single-image eval (uses `scripts/test_image.png`) |
+| `scripts/smoke_test.py` | image | Raw Cosmos Reason 2 sanity check (no agent pipeline) |
 
 ---
 
@@ -114,6 +122,8 @@ flowchart TD
 - No SLAM  
 - No trajectory generation  
 
+**Pipeline layers:** Layer 1 (Cosmos hazard extraction) → Layer 2 (normalization to canonical taxonomy in `reasoning/`) → deterministic safety and recommendation (`safety/`) → Layer 3 (Cosmos explains the deterministic decision).
+
 ---
 
 ### 5.2 Output contract (v0.2)
@@ -122,20 +132,22 @@ Every frame must output the following canonical structure. Judges love explicit 
 
 ```json
 {
-  "hazards": [{"type": "...", "severity": "..."}],
+  "hazards": [{"type": "...", "severity": "...", "zone": "..."}],
   "drone_path_safety": {"total_risk_score": 0, "classification": "safe | caution | unsafe"},
   "human_follow_safety": {"total_risk_score": 0, "classification": "safe | caution | unsafe"},
-  "recommendation": "...",
+  "recommendation": {"recommendation": "...", "drone_status": "...", "human_status": "..."},
+  "scene_summary": "...",
   "explanation": "...",
   "perception_complexity_score": 0,
   "latency_ms": 0.0
 }
 ```
 
-- **hazards** — Array of identified hazards (type, severity). Types must match canonical taxonomy.
+- **hazards** — Array of identified hazards (type, severity, zone). Types must match canonical taxonomy.
 - **drone_path_safety** — Object with `total_risk_score` (int) and `classification` (safe / caution / unsafe).
 - **human_follow_safety** — Object with `total_risk_score` (int) and `classification` (safe / caution / unsafe).
-- **recommendation** — Navigation / guidance action (e.g., Proceed and guide human, Reroute before guiding).
+- **recommendation** — Object with `recommendation` (text), `drone_status`, `human_status`. The console displays `recommendation.recommendation`.
+- **scene_summary** — Brief scene description from Layer 1 or Layer 2.
 - **explanation** — Textual, physically grounded reasoning for the decision (or null if explanation disabled).
 - **perception_complexity_score** — Number of validated hazards.
 - **latency_ms** — Pipeline latency in milliseconds.
@@ -168,10 +180,10 @@ This project uses the Egocentric Social & Physical Reasoning recipe from the Cos
 This project adapts the Video Search & Summarization recipe pattern for continuous video analytics. Rather than summarizing content, it queries Cosmos Reason 2 repeatedly to assess dynamic hazards and update shared safety decisions.
 
 **Physical Plausibility Prediction (inspiration only)**  
-The project’s physical plausibility logic is inspired by the Physical Plausibility Prediction recipe, which demonstrates how to judge consistency with physical laws. The project adopts this principle in its reasoning chain by applying constraint logic rather than numeric physics scoring.
+The project's physical plausibility logic is inspired by the Physical Plausibility Prediction recipe, which demonstrates how to judge consistency with physical laws. The project adopts this principle in its reasoning chain by applying constraint logic rather than numeric physics scoring.
 
 **Intelligent Transportation post-training (not used)**  
-This project does not use the Intelligent Transportation post-training recipe. Post-training biases Reason 2 to a specific labeled domain (e.g., traffic), which conflicts with its requirement for open-ended physical hazard reasoning and interpretability. This project intentionally uses Cosmos Reason 2 in inference mode; post-training on a fixed hazard taxonomy would narrow the model’s effective hazard vocabulary and reduce generalization to unseen or compound physical risks. Post-training was intentionally avoided to preserve open-ended hazard reasoning and prevent overfitting to a narrow labeled hazard set.
+This project does not use the Intelligent Transportation post-training recipe. Post-training biases Reason 2 to a specific labeled domain (e.g., traffic), which conflicts with its requirement for open-ended physical hazard reasoning and interpretability. This project intentionally uses Cosmos Reason 2 in inference mode; post-training on a fixed hazard taxonomy would narrow the model's effective hazard vocabulary and reduce generalization to unseen or compound physical risks. Post-training was intentionally avoided to preserve open-ended hazard reasoning and prevent overfitting to a narrow labeled hazard set.
 
 ---
 
@@ -179,21 +191,70 @@ This project does not use the Intelligent Transportation post-training recipe. P
 
 **Prerequisites**
 
-- Cosmos Cookbook cloned (for docs and recipe patterns); Cosmos Reason 2 installed (e.g., clone the repo and run the provided sample inference script).
+- `pip install -r requirements.txt`
+- Cosmos Reason 2 installed (e.g., clone the repo and run the provided sample inference script). Cosmos Cookbook cloned for docs and recipe patterns.
 - GPU: 2B model needs ~24GB VRAM; 8B needs ~32GB.
+
+**Working directory:** Run from `autonomous-drone-scene-reasoning/` (or ensure project root in `PYTHONPATH`).
+
+**Primary entry point:** `scripts/run_scenarios.py` — full pipeline (Cosmos extraction → normalization → affordance → recommendation → explanation).
+
+**Commands**
+
+| Command | Description |
+|---------|-------------|
+| `python scripts/run_scenarios.py scenarios/S1.mp4` | Default: rolling mode, explanations on |
+| `python scripts/run_scenarios.py --mode video scenarios/S1.mp4` | Full-video mode |
+| `python scripts/run_scenarios.py scenarios/S1.mp4 scenarios/S2.mp4` | Multiple videos |
+| `python scripts/run_scenarios.py --no-explain scenarios/S1.mp4` | Disable explanations |
+| `COSMOS_TIMING=1 python scripts/run_scenarios.py scenarios/S1.mp4` | Debug verbose logs |
+
+**Outputs:** Console receives the structured report (see sample below). JSONL written to `outputs/scenario_rollup.jsonl`.
+
+**Sample output**
+
+```
+=== Autonomous Drone Scene Reasoning ===
+
+Input: scenarios/S2.mp4
+Mode: video
+
+Scene Summary:
+Indoor damaged structure with debris and exposed heat source.
+
+Detected Hazards:
+- entanglement_risk (high, ground)
+- heat_source_proximity (high, unknown)
+- partial_floor_collapse (critical, unknown)
+
+Drone Path Safety: safe (risk=4)
+Human Follow Safety: unsafe (risk=11)
+
+Deterministic Recommendation:
+Proceed but do not guide
+
+Explanation:
+<Layer 3 structured explanation>
+
+--- Evaluation Metrics ---
+Frames Evaluated: 1
+Frames with Hazards: 1
+Non-Empty Hazard Rate: 100%
+Normalization Invocations: 1
+JSON Parse Failures: 0
+
+Total Latency: 26.3s
+```
 
 **Demo format**
 
 - Short clips (5–10 seconds), egocentric POV, no HUD.
-- Clips are run through the agent and end at classification.
 - The intended demo set follows the blueprint scenarios: **S1** (Class A — safe for drone and human), **S2** (Class B — gap / broken floor), **S3** (Class B — narrow passage), **S4** (Class C — dynamic / unstable area).
 
-**Running a demo**
+**Other entry points**
 
-- Run the project’s smoke test or single-clip pipeline: feed one short indoor clip through Cosmos Reason 2 and obtain stable textual output for hazards, drone safety, human-follow safety, recommendation, and explanation.
-- Recommended setup: develop and run on a GPU machine (e.g., remote SSH). Optionally, a remote Reason 2 inference API (e.g., vLLM server) may be used once the core agent loop is stable. The reference implementation prioritizes clarity and reproducibility over deployment complexity.
-
-When you run a demo, you should see: detected hazards, drone path safety, human-follow safety, recommendation, and a physically grounded explanation.
+- `python -m agent.scene_agent` — single-image eval (uses `scripts/test_image.png`) for debugging.
+- `python scripts/smoke_test.py` — raw Cosmos Reason 2 sanity check; does not run the agent pipeline.
 
 ---
 
