@@ -256,12 +256,3 @@ Total Latency: 26.3s
 - `python -m agent.scene_agent` — single-image eval (uses `scripts/test_image.png`) for debugging.
 - `python scripts/smoke_test.py` — raw Cosmos Reason 2 sanity check; does not run the agent pipeline.
 
----
-
-## 9. System Behavior Under Latency
-
-Inference latency at 384–448 resolution averages 10–20 seconds per decision frame on an NVIDIA L4 GPU. Real-time performance is not required for this challenge, as the focus is reasoning quality rather than control.
-
-In a deployment scenario, the drone would enter a safe hold position while safety inference is computed. Navigation or human guidance would only resume once shared-path classification is available. This ensures safety dominance over speed.
-
-Larger GPUs (A100/H100 class) would proportionally reduce inference latency, but this was not necessary to demonstrate reasoning correctness.
