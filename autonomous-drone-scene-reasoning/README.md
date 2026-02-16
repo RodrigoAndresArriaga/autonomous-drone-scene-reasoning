@@ -109,9 +109,9 @@ The system separates perception from safety logic. Cosmos Reason 2 performs stru
 
 ```mermaid
 flowchart TD
-    A[Video frame(s)] --> B[Cosmos Reason 2<br/>(scene + hazard extraction)]
+    A[Video frames] --> B[Cosmos Reason 2: scene and hazard extraction]
     B --> C[Structured hazard parsing]
-    C --> D[Affordance layer<br/>(Drone vs Human)]
+    C --> D[Affordance layer: Drone vs Human]
     D --> E[Shared safety classification]
     E --> F[Navigation recommendation]
     F --> G[Explanation]
