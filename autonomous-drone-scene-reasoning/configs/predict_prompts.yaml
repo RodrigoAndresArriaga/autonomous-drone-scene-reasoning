@@ -1,0 +1,98 @@
+# Predict prompts for synthetic dataset generation.
+# Keys are canonical hazard types from reasoning/hazard_schema.py (HAZARD_TYPES).
+# Each category contains 3 natural language prompts for Cosmos Predict.
+# Output naming: predict_{category}_{1|2|3}.mp4  (15 clips total)
+#
+# DESIGN CONSTRAINT — ALL PROMPTS MUST DESCRIBE A SINGLE-PATH SCENARIO:
+# Every prompt depicts a narrow corridor, tunnel, or one-way passage where
+# the hazard spans the full width of the only available route.
+# There are no side exits, branch paths, or room to bypass the hazard laterally.
+# The agent MUST confront the hazard directly or stop; it cannot go around it.
+# This ensures evaluation labels are unambiguous and classification is meaningful.
+
+unstable_ground:
+  - >
+    Egocentric drone footage advancing through a narrow underground service tunnel,
+    roughly shoulder-width, where the entire floor spans of cracked and heaving
+    concrete with sinkholes and loose rubble extending from wall to wall.
+    The corridor has no side branches and no way to bypass the unstable ground —
+    the only route forward passes directly over the compromised surface.
+  - >
+    Drone flying low along a single-path hallway in a damaged building where
+    the floor across the full corridor width has buckled into uneven, unstable
+    slabs separated by gaps. Both walls are intact with no doorways or gaps.
+    There is no way to skirt the hazard; the entire traversal path is unstable ground.
+  - >
+    Inspection flight through a one-way maintenance corridor where a section of
+    the floor spanning wall to wall has partially collapsed into loose soil,
+    showing severe instability. The passage is straight with no alternate route —
+    the drone must pass directly over the unstable surface or reverse.
+
+narrow_passage:
+  - >
+    Drone approaching a point in a corridor where both side walls have partially
+    collapsed inward, leaving only a very tight central gap barely wider than the
+    drone itself. The entire width of the path is blocked except for this single
+    narrow opening. There is no wider route — the passage is the only way forward.
+  - >
+    Egocentric view advancing toward a reinforced doorframe in a one-way hallway
+    that has buckled so severely the opening is reduced to a vertical slot too
+    narrow for a human. The walls on both sides are solid with no bypasses.
+    The only available route through the passage is this critically narrow gap.
+  - >
+    Drone navigating into a long straight utility corridor that progressively
+    narrows due to wall deformation until the width at the far end is barely
+    passable for the drone but impassable for a human. No branches or exits —
+    the corridor is a dead-straight single path with no lateral clearance.
+
+partial_floor_collapse:
+  - >
+    Drone advancing along a straight basement corridor where the entire floor
+    across the full corridor width has collapsed ahead, leaving a large void
+    that exposes the level below. The corridor walls are intact with no gaps
+    or side paths. The only route forward crosses directly over the collapse.
+  - >
+    Egocentric view in a one-way hallway where a mid-corridor section of flooring
+    has given way, spanning from the left wall to the right wall with no intact
+    floor remaining. There is no alternate path — the collapse blocks the entire
+    width of the only available route, requiring a direct crossing or reversal.
+  - >
+    Drone scouting a narrow single-path corridor in a deteriorated structure
+    where a section of floor spanning the full passage width has partially
+    collapsed into a void below. The corridor has no branches, no doorways,
+    and no room to go around — the partial floor collapse occupies the full route.
+
+debris:
+  - >
+    Egocentric drone footage in a narrow one-way corridor completely filled
+    from wall to wall with fallen ceiling sections, broken beams, and dense
+    rubble. The debris pile spans the full width and height of the passage
+    with no navigable gap. The corridor has no side exits — this is the only route.
+  - >
+    Drone approaching a choke point in a straight single-path stairwell where
+    collapsed steps and heavy debris have completely blocked the passage from
+    wall to wall, creating a dense debris field across the entire traversal path.
+    There is no way around it; the obstruction fills the only available route.
+  - >
+    Inspection flight along a confined linear utility corridor where loose rubble,
+    fallen pipes, and broken infrastructure debris cover the entire floor width
+    continuously, leaving no clear path for foot placement. The corridor has
+    no branches and no bypasses — the debris blocks the only way forward.
+
+overhead_instability:
+  - >
+    Drone flying through a narrow straight corridor where the entire ceiling
+    directly above the traversal path has cracked severely, with large concrete
+    panels visibly sagging and dangling cables hanging down into the passage.
+    The corridor is the only route and there is no way to pass without traveling
+    under the unstable overhead section, which spans the full corridor width.
+  - >
+    Egocentric view advancing through a one-way underground tunnel where the
+    ceiling throughout the passage shows active cracking and loose material
+    ready to fall. The tunnel has no branches or side rooms — the drone must
+    fly the full length directly beneath the unstable overhead structure.
+  - >
+    Drone traversing a single-path corridor beneath a heavily cracked concrete
+    beam that runs the full width of the passage. Large chunks of material
+    are visibly loosened above. There is no alternate route — the only way
+    forward passes directly under this overhead instability with no bypass available.

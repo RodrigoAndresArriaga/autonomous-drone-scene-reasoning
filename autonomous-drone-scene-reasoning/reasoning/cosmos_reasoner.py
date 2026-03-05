@@ -331,6 +331,9 @@ Stop generation immediately after the closing brace.
             max_new_tokens=max_new_tokens,
             do_sample=cfg.generation.do_sample,
             use_cache=cfg.generation.use_cache,
+            top_p=cfg.generation.top_p,
+            top_k=cfg.generation.top_k,
+            temperature=cfg.generation.temperature,
         )
     t2 = time.time()
 
@@ -432,6 +435,9 @@ Return ONLY valid compact JSON:
             max_new_tokens=cfg.max_new_tokens_normalize,
             do_sample=cfg.generation.do_sample,
             use_cache=cfg.generation.use_cache,
+            top_p=cfg.generation.top_p,
+            top_k=cfg.generation.top_k,
+            temperature=cfg.generation.temperature,
         )
 
     generated_ids_trimmed = [
@@ -674,6 +680,10 @@ Rules:
             **inputs,
             max_new_tokens=cfg.max_new_tokens_explanation,
             do_sample=cfg.generation.do_sample,
+            use_cache=cfg.generation.use_cache,
+            top_p=cfg.generation.top_p,
+            top_k=cfg.generation.top_k,
+            temperature=cfg.generation.temperature,
             repetition_penalty=1.1,
             no_repeat_ngram_size=3,
         )

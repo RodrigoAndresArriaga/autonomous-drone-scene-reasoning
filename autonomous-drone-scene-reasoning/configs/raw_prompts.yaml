@@ -1,0 +1,54 @@
+# Raw baseline prompts for synthetic dataset generation.
+# Produces 5 baseline clips written to data/raw/ by scripts/generate_raw.py.
+# These clips serve as the source material for Cosmos Transfer (Phase 2).
+#
+# One prompt per canonical hazard type (5 total).
+# All prompts describe single-path, one-way corridor scenarios where
+# the hazard spans the full width of the only available route.
+# There are no side exits or bypass options — the agent must confront
+# or retreat from the hazard directly.
+#
+# Clip naming:  raw_{hazard_type}.mp4
+# Keys must be canonical hazard types from reasoning/hazard_schema.py (HAZARD_TYPES).
+
+unstable_ground: >
+  Egocentric drone footage advancing slowly through a straight, narrow
+  one-way corridor in a damaged industrial building. The entire floor
+  across the full corridor width is heavily cracked and unstable, with
+  buckled concrete, loose rubble, and visible gaps in the surface.
+  Both side walls are intact with no branches or doorways. The only
+  route forward crosses directly over this unstable ground with no
+  possibility of bypassing it laterally.
+
+narrow_passage: >
+  Drone approaching a deformation point in a straight single-path
+  underground utility corridor where both side walls have collapsed
+  inward, leaving only a critically tight central gap barely wide enough
+  for the drone. The walls are solid concrete with no gaps or side exits.
+  The only way forward is through this severely narrowed passage —
+  a human could not pass through the constricted opening.
+
+partial_floor_collapse: >
+  Egocentric drone view advancing along a straight basement corridor where
+  a large section of the floor spanning the full corridor width has
+  collapsed ahead, exposing a void to the level below. The corridor walls
+  are intact on both sides with no branches. The only route forward
+  crosses directly over the partial floor collapse — there is no intact
+  floor remaining across the passage and no way to go around it.
+
+debris: >
+  Drone flying through a narrow one-way service corridor where the entire
+  passage from wall to wall is blocked by a dense accumulation of fallen
+  ceiling panels, broken structural beams, and heavy rubble. The debris
+  spans the full height and width of the corridor with no navigable gap.
+  There are no side exits or alternate routes — the debris completely
+  blocks the only available path forward.
+
+overhead_instability: >
+  Egocentric view advancing through a straight single-path corridor
+  beneath a severely cracked concrete ceiling. Large ceiling panels are
+  visibly sagging and loose material is about to fall directly onto the
+  traversal path below. The corridor has no branches or side rooms.
+  The only route forward travels the full length beneath this unstable
+  overhead section — there is no bypass and no way to avoid passing
+  under the overhead instability.

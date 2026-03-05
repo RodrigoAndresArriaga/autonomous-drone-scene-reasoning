@@ -103,6 +103,11 @@ class CosmosVideoConfig:
 class CosmosGenerationConfig:
     do_sample: bool
     use_cache: bool
+    # Cosmos Reason 2 recommended instruct params (active only when do_sample=True)
+    top_p: float
+    top_k: int
+    temperature: float
+    presence_penalty: float
 
 
 @dataclass
@@ -173,6 +178,10 @@ def _dict_to_config(data: dict) -> AppConfig:
             generation=CosmosGenerationConfig(
                 do_sample=cg.get("do_sample", False),
                 use_cache=cg.get("use_cache", True),
+                top_p=float(cg.get("top_p", 0.8)),
+                top_k=int(cg.get("top_k", 20)),
+                temperature=float(cg.get("temperature", 0.7)),
+                presence_penalty=float(cg.get("presence_penalty", 1.5)),
             ),
             attention_preference=c.get("attention_preference", ["flash_attention_2", "sdpa"]),
             max_new_tokens_normalize=int(c.get("max_new_tokens_normalize", 200)),
