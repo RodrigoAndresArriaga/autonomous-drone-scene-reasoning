@@ -429,6 +429,6 @@ Future extensions that fit naturally within this architecture:
 
 This project demonstrates a reasoning agent that prevents a critical robotics failure mode: **robots guiding humans through unsafe paths**.
 
-By separating drone and human affordances, the system identifies cases where the drone can continue — but guiding a human would be dangerous. The result is a deterministic, explainable safety layer for human–robot collaboration.
+By separating drone and human affordances, the system identifies cases where the drone can continue, but guiding a human would be dangerous. The result is a deterministic, explainable safety layer for human–robot collaboration.
 
-Evaluated on a 40-clip benchmark across 5 hazard categories and 3 dataset tiers (baseline, domain-shifted, novel synthetic), the system achieves a shared safety classification macro-F1 of **0.87** and a recommendation accuracy of **0.90** — with a verified safety invariant: in no evaluated case did the agent recommend guiding a human through a path it classified as unsafe for human traversal.
+Evaluated on a 40-clip benchmark across 5 hazard categories and 3 dataset tiers (baseline, domain-shifted, novel synthetic), the system achieves a shared safety classification macro-F1 of **0.87** and a recommendation accuracy of **0.90**, with a verified safety invariant: in no evaluated case did the agent recommend guiding a human through a path it classified as unsafe for human traversal.
