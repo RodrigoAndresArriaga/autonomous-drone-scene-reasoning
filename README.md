@@ -218,11 +218,21 @@ Cosmos Reason 2 supports a chain-of-thought reasoning mode activated by appendin
 
 **Prerequisites**
 
-- `pip install -r requirements.txt`
-- Cosmos Reason 2 installed (e.g., clone the repo and run the provided sample inference script). Cosmos Cookbook cloned for docs and recipe patterns.
-- GPU: 2B model needs ~24GB VRAM; 8B needs ~32GB.
+- Clone [cosmos-reason2](https://github.com/nvidia-cosmos/cosmos-reason2) and set up its venv: `cd /path/to/cosmos-reason2 && uv sync`.
+- Install torchvision into the venv: `uv pip install torchvision`.
+- GPU: 2B model needs ~24GB VRAM.
 
-**Working directory:** Run from `autonomous-drone-scene-reasoning/` (or ensure project root in `PYTHONPATH`).
+**Environment setup:**
+
+```bash
+cd /path/to/cosmos-reason2
+uv sync
+uv pip install torchvision
+source .venv/bin/activate
+cd /path/to/autonomous-drone-scene-reasoning
+```
+
+**Working directory:** Project root (where `scripts/` and `scenarios/` live), with the cosmos-reason2 venv active.
 
 **Primary entry point:** `scripts/run_scenarios.py` — full pipeline (Cosmos extraction → normalization → affordance → recommendation → explanation).
 
@@ -230,11 +240,10 @@ Cosmos Reason 2 supports a chain-of-thought reasoning mode activated by appendin
 
 | Command | Description |
 |---------|-------------|
-| `python scripts/run_scenarios.py scenarios/S1.mp4` | Default: rolling mode, explanations on |
-| `python scripts/run_scenarios.py --mode video scenarios/S1.mp4` | Full-video mode |
-| `python scripts/run_scenarios.py scenarios/S1.mp4 scenarios/S2.mp4` | Multiple videos |
-| `python scripts/run_scenarios.py --no-explain scenarios/S1.mp4` | Disable explanations |
-| `COSMOS_TIMING=1 python scripts/run_scenarios.py scenarios/S1.mp4` | Debug verbose logs |
+| `python scripts/run_scenarios.py scenarios/test-scenario.mp4` | Default: rolling mode, explanations on |
+| `python scripts/run_scenarios.py --mode video scenarios/test-scenario.mp4` | Full-video mode |
+| `python scripts/run_scenarios.py --no-explain scenarios/test-scenario.mp4` | Disable explanations (faster) |
+| `COSMOS_TIMING=1 python scripts/run_scenarios.py scenarios/test-scenario.mp4` | Debug verbose logs |
 
 **Outputs:** Console receives the structured report (see sample below). JSONL written to `outputs/scenario_rollup.jsonl`.
 
@@ -243,7 +252,7 @@ Cosmos Reason 2 supports a chain-of-thought reasoning mode activated by appendin
 ```
 === Autonomous Drone Scene Reasoning ===
 
-Input: scenarios/S2.mp4
+Input: scenarios/test-scenario.mp4
 Mode: video
 
 Scene Summary:
@@ -276,7 +285,7 @@ Total Latency: 26.3s
 **Demo format**
 
 - Short clips (5–10 seconds), egocentric POV, no HUD.
-- The intended demo set follows the blueprint scenarios: **S1** (Class A — safe for drone and human), **S2** (Class B — gap / broken floor), **S3** (Class B — narrow passage), **S4** (Class C — dynamic / unstable area).
+- Drop any `.mp4` clip into `scenarios/` and pass it as the argument. The included `test-scenario.mp4` demonstrates a Class B environment (gap / broken floor).
 
 **Other entry points**
 
