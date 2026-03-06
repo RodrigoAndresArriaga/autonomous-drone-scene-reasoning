@@ -209,7 +209,7 @@ The project's physical plausibility logic is inspired by the Physical Plausibili
 **Intelligent Transportation post-training (not used)**  
 This project does not use the Intelligent Transportation post-training recipe. Post-training biases Reason 2 to a specific labeled domain (e.g., traffic), which conflicts with its requirement for open-ended physical hazard reasoning and interpretability. This project intentionally uses Cosmos Reason 2 in inference mode; post-training on a fixed hazard taxonomy would narrow the model's effective hazard vocabulary and reduce generalization to unseen or compound physical risks. Post-training was intentionally avoided to preserve open-ended hazard reasoning and prevent overfitting to a narrow labeled hazard set.
 
-**Inference mode — greedy decoding, reasoning CoT disabled**  
+**Inference mode - greedy decoding, reasoning CoT disabled**  
 Cosmos Reason 2 supports a chain-of-thought reasoning mode activated by appending a `<think>...</think>` instruction to each prompt. This project intentionally runs the model with `do_sample=False` (greedy decoding) and without the CoT toggle. This choice maximises output determinism and benchmark reproducibility: identical inputs always produce identical outputs across runs. All reported metrics on Dataset v1.0 were generated under these settings.
 
 ---
